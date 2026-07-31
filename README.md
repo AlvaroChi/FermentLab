@@ -24,6 +24,11 @@ come base per una futura caratterizzazione e calibrazione:
 
 [`experiments/esp32/vl53l0x-characterization/`](experiments/esp32/vl53l0x-characterization/)
 
+Il firmware operativo applica la calibrazione validata e misura la crescita
+rispetto alla distanza iniziale:
+
+[`experiments/esp32/fermentation-height-monitor/`](experiments/esp32/fermentation-height-monitor/)
+
 Per compilare il firmware dalla radice del repository:
 
 ```powershell
