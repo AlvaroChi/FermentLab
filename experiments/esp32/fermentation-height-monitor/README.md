@@ -1,7 +1,22 @@
 # Fermentation Height Monitor
 
-Firmware operativo ESP32 + VL53L0X per seguire la crescita di un impasto dopo
-la caratterizzazione geometrica del sensore.
+Firmware operativo ESP32 + VL53L0X + SHT3x per seguire la crescita di un
+impasto e registrare temperatura e umidita' dell'ambiente.
+
+## Collegamenti SHT3x
+
+Il modulo condivide il bus I2C del VL53L0X:
+
+| SHT3x | ESP32 DevKit V1 |
+|---|---|
+| `VCC` | `3V3` |
+| `GND` | `GND` |
+| `SDA` | `GPIO21` |
+| `SCL` | `GPIO22` |
+
+Il firmware cerca automaticamente gli indirizzi `0x44` e `0x45`, effettua
+misure single-shot ad alta ripetibilita' e scarta i dati che non superano il
+controllo CRC.
 
 ## Campo di utilizzo
 
@@ -21,6 +36,7 @@ distanza corretta e crescita.
 - resta in attesa all'accensione;
 - una pressione avvia una nuova sessione e azzera la baseline;
 - una seconda pressione ferma l'acquisizione;
+- legge temperatura e umidita' ambiente dall'SHT3x;
 - acquisisce sette letture valide;
 - usa la mediana per respingere valori isolati;
 - applica la calibrazione;
@@ -68,7 +84,7 @@ e forzare il salvataggio finale.
 ## Formato CSV
 
 ```text
-tempo_ms,n_valide,n_tentativi,raw_min_mm,raw_media_mm,raw_mediana_mm,raw_max_mm,distanza_corretta_mm,crescita_mm,stato
+tempo_ms,temperatura_ambiente_c,umidita_ambiente_pct,n_valide,n_tentativi,raw_min_mm,raw_media_mm,raw_mediana_mm,raw_max_mm,distanza_corretta_mm,crescita_mm,stato_distanza,stato_ambiente
 ```
 
 Prima della prova sull'impasto verificare il montaggio con un bersaglio rigido e

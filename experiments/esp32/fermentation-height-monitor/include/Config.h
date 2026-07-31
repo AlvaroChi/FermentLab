@@ -10,6 +10,9 @@ constexpr uint8_t BUTTON_PIN = 4;
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 50;
 constexpr uint32_t I2C_FREQUENCY_HZ = 400000;
 constexpr uint8_t SENSOR_I2C_ADDRESS = 0x29;
+constexpr uint8_t SHT3X_DEFAULT_I2C_ADDRESS = 0x44;
+constexpr uint8_t SHT3X_ALTERNATE_I2C_ADDRESS = 0x45;
+constexpr uint32_t SHT3X_MEASUREMENT_DELAY_MS = 20;
 constexpr uint32_t SERIAL_BAUD = 115200;
 
 constexpr uint16_t SENSOR_TIMEOUT_MS = 500;

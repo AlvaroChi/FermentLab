@@ -12,6 +12,8 @@ namespace {
 
 VL53L0X sensor;
 bool sensorReady = false;
+bool ambientSensorReady = false;
+uint8_t ambientSensorAddress = Config::SHT3X_DEFAULT_I2C_ADDRESS;
 bool acquisitionRunning = false;
 
 int buttonRawState = HIGH;
@@ -32,8 +34,9 @@ char commandBuffer[COMMAND_BUFFER_SIZE] = {};
 size_t commandLength = 0;
 
 constexpr char CSV_HEADER[] =
-    "tempo_ms,n_valide,n_tentativi,raw_min_mm,raw_media_mm,"
-    "raw_mediana_mm,raw_max_mm,distanza_corretta_mm,crescita_mm,stato";
+    "tempo_ms,temperatura_ambiente_c,umidita_ambiente_pct,n_valide,"
+    "n_tentativi,raw_min_mm,raw_media_mm,raw_mediana_mm,raw_max_mm,"
+    "distanza_corretta_mm,crescita_mm,stato_distanza,stato_ambiente";
 
 enum class InvalidReason : uint8_t {
   None,
@@ -65,9 +68,132 @@ struct FilteredReading {
   }
 };
 
+enum class AmbientStatus : uint8_t {
+  Ok,
+  SensorNotReady,
+  CommandError,
+  ReadError,
+  CrcError,
+};
+
+struct AmbientReading {
+  float temperatureC = NAN;
+  float humidityPercent = NAN;
+  AmbientStatus status = AmbientStatus::SensorNotReady;
+
+  bool valid() const { return status == AmbientStatus::Ok; }
+};
+
 bool i2cDevicePresent(uint8_t address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission() == 0;
+}
+
+bool sendSht3xCommand(uint16_t command) {
+  Wire.beginTransmission(ambientSensorAddress);
+  Wire.write(static_cast<uint8_t>(command >> 8));
+  Wire.write(static_cast<uint8_t>(command & 0xFF));
+  return Wire.endTransmission() == 0;
+}
+
+bool initializeAmbientSensor() {
+  Serial.println(F("# Inizializzazione SHT3x..."));
+  constexpr uint8_t addresses[] = {
+      Config::SHT3X_DEFAULT_I2C_ADDRESS,
+      Config::SHT3X_ALTERNATE_I2C_ADDRESS,
+  };
+
+  for (const uint8_t address : addresses) {
+    if (!i2cDevicePresent(address)) {
+      continue;
+    }
+    ambientSensorAddress = address;
+    if (!sendSht3xCommand(0x30A2)) {  // Soft reset.
+      continue;
+    }
+    delay(2);
+    Serial.printf("# SHT3x pronto all'indirizzo 0x%02X.\n",
+                  ambientSensorAddress);
+    return true;
+  }
+
+  Serial.println(F("# ERRORE: SHT3x non trovato a 0x44 o 0x45."));
+  return false;
+}
+
+uint8_t sht3xCrc(const uint8_t* data, size_t length) {
+  uint8_t crc = 0xFF;
+  for (size_t index = 0; index < length; ++index) {
+    crc ^= data[index];
+    for (uint8_t bit = 0; bit < 8; ++bit) {
+      crc = (crc & 0x80) != 0
+                ? static_cast<uint8_t>((crc << 1) ^ 0x31)
+                : static_cast<uint8_t>(crc << 1);
+    }
+  }
+  return crc;
+}
+
+AmbientReading readAmbientMeasurement() {
+  AmbientReading reading;
+  if (!ambientSensorReady) {
+    return reading;
+  }
+
+  // Single shot, alta ripetibilita', clock stretching disabilitato.
+  if (!sendSht3xCommand(0x2400)) {
+    reading.status = AmbientStatus::CommandError;
+    return reading;
+  }
+  delay(Config::SHT3X_MEASUREMENT_DELAY_MS);
+
+  constexpr uint8_t byteCount = 6;
+  uint8_t data[byteCount] = {};
+  const size_t received = Wire.requestFrom(
+      ambientSensorAddress, byteCount, static_cast<uint8_t>(true));
+  if (received != byteCount) {
+    while (Wire.available() > 0) {
+      (void)Wire.read();
+    }
+    reading.status = AmbientStatus::ReadError;
+    return reading;
+  }
+  for (uint8_t index = 0; index < byteCount; ++index) {
+    data[index] = static_cast<uint8_t>(Wire.read());
+  }
+
+  if (sht3xCrc(data, 2) != data[2] ||
+      sht3xCrc(data + 3, 2) != data[5]) {
+    reading.status = AmbientStatus::CrcError;
+    return reading;
+  }
+
+  const uint16_t rawTemperature =
+      static_cast<uint16_t>((data[0] << 8) | data[1]);
+  const uint16_t rawHumidity =
+      static_cast<uint16_t>((data[3] << 8) | data[4]);
+  reading.temperatureC =
+      -45.0f + 175.0f * static_cast<float>(rawTemperature) / 65535.0f;
+  reading.humidityPercent =
+      100.0f * static_cast<float>(rawHumidity) / 65535.0f;
+  reading.status = AmbientStatus::Ok;
+  return reading;
+}
+
+const char* ambientStatusText(AmbientStatus status) {
+  switch (status) {
+    case AmbientStatus::Ok:
+      return "OK";
+    case AmbientStatus::SensorNotReady:
+      return "SHT3X_NON_PRONTO";
+    case AmbientStatus::CommandError:
+      return "SHT3X_ERRORE_COMANDO";
+    case AmbientStatus::ReadError:
+      return "SHT3X_ERRORE_LETTURA";
+    case AmbientStatus::CrcError:
+      return "SHT3X_ERRORE_CRC";
+  }
+  return "SHT3X_ERRORE_SCONOSCIUTO";
 }
 
 bool initializeSensor() {
@@ -206,26 +332,39 @@ void printCsvFloat(float value) {
   }
 }
 
-void printUnavailableRow(const char* state) {
+void printRowPrefix(const AmbientReading& ambient) {
   Serial.print(millis());
-  Serial.print(F(",0,0,nan,nan,nan,nan,nan,nan,"));
-  Serial.println(state);
+  Serial.print(',');
+  printCsvFloat(ambient.temperatureC);
+  Serial.print(',');
+  printCsvFloat(ambient.humidityPercent);
+  Serial.print(',');
+}
+
+void printUnavailableRow(const AmbientReading& ambient,
+                         const char* distanceState) {
+  printRowPrefix(ambient);
+  Serial.print(F("0,0,nan,nan,nan,nan,nan,nan,"));
+  Serial.print(distanceState);
+  Serial.print(',');
+  Serial.println(ambientStatusText(ambient.status));
 }
 
 void performReading() {
+  const AmbientReading ambient = readAmbientMeasurement();
   if (!sensorReady) {
-    printUnavailableRow("SENSORE_NON_PRONTO");
+    printUnavailableRow(ambient, "SENSORE_DISTANZA_NON_PRONTO");
     return;
   }
 
   const FilteredReading reading = acquireFilteredReading();
   if (!reading.available()) {
-    Serial.print(millis());
-    Serial.print(',');
+    printRowPrefix(ambient);
     Serial.print(reading.validCount);
     Serial.print(',');
     Serial.print(reading.attempts);
-    Serial.println(F(",nan,nan,nan,nan,nan,nan,LETTURE_INSUFFICIENTI"));
+    Serial.print(F(",nan,nan,nan,nan,nan,nan,LETTURE_INSUFFICIENTI,"));
+    Serial.println(ambientStatusText(ambient.status));
     return;
   }
 
@@ -251,8 +390,7 @@ void performReading() {
     growthMm = baselineDistanceMm - correctedMm;
   }
 
-  Serial.print(millis());
-  Serial.print(',');
+  printRowPrefix(ambient);
   Serial.print(reading.validCount);
   Serial.print(',');
   Serial.print(reading.attempts);
@@ -269,7 +407,9 @@ void performReading() {
   Serial.print(',');
   printCsvFloat(growthMm);
   Serial.print(',');
-  Serial.println(state);
+  Serial.print(state);
+  Serial.print(',');
+  Serial.println(ambientStatusText(ambient.status));
 }
 
 void printHelp() {
@@ -284,6 +424,12 @@ void printStatus() {
                 sensorReady ? "pronto" : "NON pronto",
                 static_cast<unsigned long>(readingIntervalSeconds),
                 Config::CALIBRATED_MIN_MM, Config::CALIBRATED_MAX_MM);
+  if (ambientSensorReady) {
+    Serial.printf("# SHT3x=pronto, indirizzo=0x%02X\n",
+                  ambientSensorAddress);
+  } else {
+    Serial.println(F("# SHT3x=NON pronto"));
+  }
   if (baselineAvailable) {
     Serial.printf("# Baseline=%.3f mm\n", baselineDistanceMm);
   } else {
@@ -396,9 +542,11 @@ void processCommand(const char* rawCommand) {
     if (!sensorReady) {
       sensorReady = initializeSensor();
       warmUpSensor();
-    } else {
-      Serial.println(F("# Il sensore e' gia' pronto."));
     }
+    if (!ambientSensorReady) {
+      ambientSensorReady = initializeAmbientSensor();
+    }
+    printStatus();
   } else if (command == "help" || command == "?") {
     printHelp();
   } else if (command.startsWith("interval=")) {
@@ -460,6 +608,7 @@ void setup() {
 
   sensorReady = initializeSensor();
   warmUpSensor();
+  ambientSensorReady = initializeAmbientSensor();
   printStatus();
   printHelp();
   Serial.println(CSV_HEADER);
