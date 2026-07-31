@@ -42,8 +42,25 @@ constexpr float CALIBRATED_MAX_MM = 175.0f;
 
 constexpr uint32_t READING_INTERVAL_MS = TIMEINTERVAL * 1000UL;
 constexpr uint32_t WIFI_TIMEOUT_MS = 20000;
+constexpr uint32_t WIFI_RETRY_INITIAL_MS = 5000;
+constexpr uint32_t WIFI_RETRY_MAX_MS = 60000;
 constexpr uint32_t NTP_TIMEOUT_MS = 20000;
 constexpr time_t MIN_VALID_EPOCH = 1704067200;  // 2024-01-01 UTC
+
+// Persistent InfluxDB queue. A segment is deleted only after a successful
+// HTTP response. Small segments bound RAM use and limit retransmission after
+// a reset. Presence in this directory is the record's "not sent" state.
+constexpr char TELEMETRY_QUEUE_DIRECTORY[] = "/influx-queue";
+constexpr size_t TELEMETRY_SEGMENT_MAX_BYTES = 12 * 1024;
+constexpr uint32_t INFLUX_HTTP_TIMEOUT_MS = 5000;
+constexpr uint32_t INFLUX_RETRY_INITIAL_MS = 5000;
+constexpr uint32_t INFLUX_RETRY_MAX_MS = 5 * 60 * 1000UL;
+constexpr uint32_t INFLUX_SUCCESS_PAUSE_MS = 250;
+
+// Set the vessel geometry when known. Zero keeps calculated height/volume
+// absent instead of publishing invented values.
+constexpr float SENSOR_TO_CONTAINER_BOTTOM_MM = 0.0f;
+constexpr float CONTAINER_CROSS_SECTION_CM2 = 0.0f;
 
 constexpr char TIMEZONE[] = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 constexpr char NTP_SERVER_1[] = "pool.ntp.org";
