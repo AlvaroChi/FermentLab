@@ -1,6 +1,6 @@
 # Fermentation Session Logger
 
-Firmware ESP32 che avvia e chiude una sessione tramite un pulsante tra GPIO27
+Firmware ESP32 che avvia e chiude una sessione tramite un pulsante tra GPIO4
 e GND. Ogni misura viene emessa come JSON Line e salvata dal PC in un file
 rinominato automaticamente alla fine della sessione.
 
@@ -10,7 +10,7 @@ rinominato automaticamente alla fine della sessione.
 |---|---|
 | SDA VL53L0X + SHT3x | GPIO21 |
 | SCL VL53L0X + SHT3x | GPIO22 |
-| Pulsante attivo basso | GPIO27 - GND |
+| Pulsante attivo basso con pull-up interna | GPIO4 - GND |
 | Alimentazione sensori | 3V3 - GND |
 
 ## Wi-Fi

@@ -51,7 +51,7 @@ def main() -> int:
     output_file = None
     final_path: Path | None = None
     print(
-        f"{args.port} collegata. Premi GPIO27 per iniziare; "
+        f"{args.port} collegata. Premi GPIO4 per iniziare; "
         "premilo ancora per chiudere."
     )
 
