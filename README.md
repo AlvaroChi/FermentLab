@@ -29,6 +29,11 @@ rispetto alla distanza iniziale:
 
 [`experiments/esp32/fermentation-height-monitor/`](experiments/esp32/fermentation-height-monitor/)
 
+Il logger di sessione aggiunge Wi-Fi/NTP, timestamp locale, JSON Lines e
+apertura/chiusura tramite pulsante:
+
+[`experiments/esp32/fermentation-session-logger/`](experiments/esp32/fermentation-session-logger/)
+
 Per compilare il firmware dalla radice del repository:
 
 ```powershell

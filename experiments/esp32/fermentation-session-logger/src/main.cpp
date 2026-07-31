@@ -1,0 +1,639 @@
+#include <Arduino.h>
+#include <VL53L0X.h>
+#include <WiFi.h>
+#include <Wire.h>
+
+#include <algorithm>
+#include <cstring>
+#include <time.h>
+
+#include "Config.h"
+#include "Secrets.h"
+
+namespace {
+
+VL53L0X distanceSensor;
+bool distanceSensorReady = false;
+bool ambientSensorReady = false;
+uint8_t ambientSensorAddress = Config::SHT3X_DEFAULT_I2C_ADDRESS;
+
+bool sessionActive = false;
+bool baselineAvailable = false;
+float baselineDistanceMm = NAN;
+uint32_t sessionStartMs = 0;
+uint32_t lastReadingMs = 0;
+uint32_t sequenceNumber = 0;
+
+int buttonRawState = HIGH;
+int buttonStableState = HIGH;
+uint32_t buttonLastChangeMs = 0;
+
+char deviceId[32] = {};
+char sessionId[64] = {};
+char sessionStartDate[9] = {};
+char sessionStartTime[7] = {};
+
+enum class DistanceInvalidReason : uint8_t {
+  None,
+  Timeout,
+  I2cError,
+  DeviceStatus,
+  OutOfRange,
+};
+
+struct DistanceMeasurement {
+  uint16_t millimeters = 0;
+  DistanceInvalidReason invalidReason = DistanceInvalidReason::None;
+
+  bool valid() const {
+    return invalidReason == DistanceInvalidReason::None;
+  }
+};
+
+struct FilteredDistance {
+  uint16_t values[Config::FILTER_SAMPLE_COUNT] = {};
+  size_t validCount = 0;
+  size_t attempts = 0;
+  uint16_t minimum = 0;
+  uint16_t median = 0;
+  uint16_t maximum = 0;
+  float mean = NAN;
+
+  bool available() const {
+    return validCount >= Config::MIN_VALID_SAMPLES;
+  }
+};
+
+enum class AmbientStatus : uint8_t {
+  Ok,
+  SensorNotReady,
+  CommandError,
+  ReadError,
+  CrcError,
+};
+
+struct AmbientReading {
+  float temperatureC = NAN;
+  float humidityPercent = NAN;
+  AmbientStatus status = AmbientStatus::SensorNotReady;
+};
+
+void printJsonFloat(float value, uint8_t decimals = 3) {
+  if (isnan(value) || isinf(value)) {
+    Serial.print(F("null"));
+  } else {
+    Serial.print(value, decimals);
+  }
+}
+
+void emitEvent(const char* type, const char* code) {
+  Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\""));
+  Serial.print(type);
+  Serial.print(F("\",\"device_id\":\""));
+  Serial.print(deviceId);
+  Serial.print(F("\",\"code\":\""));
+  Serial.print(code);
+  Serial.println(F("\"}"));
+}
+
+bool i2cDevicePresent(uint8_t address) {
+  Wire.beginTransmission(address);
+  return Wire.endTransmission() == 0;
+}
+
+bool initializeDistanceSensor() {
+  if (!i2cDevicePresent(Config::VL53L0X_I2C_ADDRESS)) {
+    emitEvent("error", "VL53L0X_NOT_FOUND");
+    return false;
+  }
+
+  distanceSensor.setTimeout(Config::SENSOR_TIMEOUT_MS);
+  if (!distanceSensor.init(true) ||
+      !distanceSensor.setSignalRateLimit(Config::SIGNAL_RATE_LIMIT_MCPS) ||
+      !distanceSensor.setMeasurementTimingBudget(
+          Config::TIMING_BUDGET_MS * 1000UL)) {
+    emitEvent("error", "VL53L0X_INIT_FAILED");
+    return false;
+  }
+  distanceSensor.startContinuous();
+  emitEvent("status", "VL53L0X_READY");
+  return true;
+}
+
+uint32_t measurementTimeoutMs() {
+  const uint32_t derived =
+      Config::TIMING_BUDGET_MS + Config::TIMEOUT_MARGIN_MS;
+  return std::max(derived, static_cast<uint32_t>(Config::SENSOR_TIMEOUT_MS));
+}
+
+DistanceMeasurement readDistanceMeasurement() {
+  DistanceMeasurement measurement;
+  const uint32_t startedAt = millis();
+
+  while (true) {
+    const uint8_t interruptStatus =
+        distanceSensor.readReg(VL53L0X::RESULT_INTERRUPT_STATUS);
+    if (distanceSensor.last_status != 0) {
+      measurement.invalidReason = DistanceInvalidReason::I2cError;
+      return measurement;
+    }
+    if ((interruptStatus & 0x07) != 0) {
+      break;
+    }
+    if (millis() - startedAt >= measurementTimeoutMs()) {
+      measurement.invalidReason = DistanceInvalidReason::Timeout;
+      return measurement;
+    }
+    delay(1);
+  }
+
+  const uint8_t rawRangeStatus =
+      distanceSensor.readReg(VL53L0X::RESULT_RANGE_STATUS);
+  if (distanceSensor.last_status != 0) {
+    measurement.invalidReason = DistanceInvalidReason::I2cError;
+    return measurement;
+  }
+  const uint8_t deviceStatus = (rawRangeStatus & 0x78) >> 3;
+
+  measurement.millimeters =
+      distanceSensor.readReg16Bit(VL53L0X::RESULT_RANGE_STATUS + 10);
+  const bool rangeReadOk = distanceSensor.last_status == 0;
+  distanceSensor.writeReg(VL53L0X::SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+  if (!rangeReadOk || distanceSensor.last_status != 0) {
+    measurement.invalidReason = DistanceInvalidReason::I2cError;
+  } else if (deviceStatus != Config::DEVICE_STATUS_RANGE_COMPLETE) {
+    measurement.invalidReason = DistanceInvalidReason::DeviceStatus;
+  } else if (measurement.millimeters < Config::MIN_SENSOR_RANGE_MM ||
+             measurement.millimeters > Config::MAX_SENSOR_RANGE_MM ||
+             measurement.millimeters >= 8190) {
+    measurement.invalidReason = DistanceInvalidReason::OutOfRange;
+  }
+  return measurement;
+}
+
+void warmUpDistanceSensor() {
+  if (!distanceSensorReady) {
+    return;
+  }
+  for (size_t index = 0; index < Config::WARMUP_READINGS; ++index) {
+    (void)readDistanceMeasurement();
+    delay(Config::SAMPLE_DELAY_MS);
+  }
+}
+
+FilteredDistance acquireFilteredDistance() {
+  FilteredDistance result;
+  if (!distanceSensorReady) {
+    return result;
+  }
+
+  while (result.validCount < Config::FILTER_SAMPLE_COUNT &&
+         result.attempts < Config::MAX_SAMPLE_ATTEMPTS) {
+    const DistanceMeasurement measurement = readDistanceMeasurement();
+    ++result.attempts;
+    if (measurement.valid()) {
+      result.values[result.validCount++] = measurement.millimeters;
+    }
+    if (result.validCount < Config::FILTER_SAMPLE_COUNT) {
+      delay(Config::SAMPLE_DELAY_MS);
+    }
+  }
+  if (!result.available()) {
+    return result;
+  }
+
+  std::sort(result.values, result.values + result.validCount);
+  result.minimum = result.values[0];
+  result.median = result.values[result.validCount / 2];
+  result.maximum = result.values[result.validCount - 1];
+  uint32_t sum = 0;
+  for (size_t index = 0; index < result.validCount; ++index) {
+    sum += result.values[index];
+  }
+  result.mean =
+      static_cast<float>(sum) / static_cast<float>(result.validCount);
+  return result;
+}
+
+bool sendSht3xCommand(uint16_t command) {
+  Wire.beginTransmission(ambientSensorAddress);
+  Wire.write(static_cast<uint8_t>(command >> 8));
+  Wire.write(static_cast<uint8_t>(command & 0xFF));
+  return Wire.endTransmission() == 0;
+}
+
+bool initializeAmbientSensor() {
+  constexpr uint8_t addresses[] = {
+      Config::SHT3X_DEFAULT_I2C_ADDRESS,
+      Config::SHT3X_ALTERNATE_I2C_ADDRESS,
+  };
+  for (const uint8_t address : addresses) {
+    if (!i2cDevicePresent(address)) {
+      continue;
+    }
+    ambientSensorAddress = address;
+    if (!sendSht3xCommand(0x30A2)) {
+      continue;
+    }
+    delay(2);
+    emitEvent("status", "SHT3X_READY");
+    return true;
+  }
+  emitEvent("error", "SHT3X_NOT_FOUND");
+  return false;
+}
+
+uint8_t sht3xCrc(const uint8_t* data, size_t length) {
+  uint8_t crc = 0xFF;
+  for (size_t index = 0; index < length; ++index) {
+    crc ^= data[index];
+    for (uint8_t bit = 0; bit < 8; ++bit) {
+      crc = (crc & 0x80) != 0
+                ? static_cast<uint8_t>((crc << 1) ^ 0x31)
+                : static_cast<uint8_t>(crc << 1);
+    }
+  }
+  return crc;
+}
+
+AmbientReading readAmbientMeasurement() {
+  AmbientReading reading;
+  if (!ambientSensorReady) {
+    return reading;
+  }
+  if (!sendSht3xCommand(0x2400)) {
+    reading.status = AmbientStatus::CommandError;
+    return reading;
+  }
+  delay(Config::SHT3X_MEASUREMENT_DELAY_MS);
+
+  constexpr uint8_t byteCount = 6;
+  uint8_t data[byteCount] = {};
+  const size_t received = Wire.requestFrom(
+      ambientSensorAddress, byteCount, static_cast<uint8_t>(true));
+  if (received != byteCount) {
+    while (Wire.available() > 0) {
+      (void)Wire.read();
+    }
+    reading.status = AmbientStatus::ReadError;
+    return reading;
+  }
+  for (uint8_t index = 0; index < byteCount; ++index) {
+    data[index] = static_cast<uint8_t>(Wire.read());
+  }
+  if (sht3xCrc(data, 2) != data[2] ||
+      sht3xCrc(data + 3, 2) != data[5]) {
+    reading.status = AmbientStatus::CrcError;
+    return reading;
+  }
+
+  const uint16_t rawTemperature =
+      static_cast<uint16_t>((data[0] << 8) | data[1]);
+  const uint16_t rawHumidity =
+      static_cast<uint16_t>((data[3] << 8) | data[4]);
+  reading.temperatureC =
+      -45.0f + 175.0f * static_cast<float>(rawTemperature) / 65535.0f;
+  reading.humidityPercent =
+      100.0f * static_cast<float>(rawHumidity) / 65535.0f;
+  reading.status = AmbientStatus::Ok;
+  return reading;
+}
+
+const char* ambientStatusText(AmbientStatus status) {
+  switch (status) {
+    case AmbientStatus::Ok:
+      return "OK";
+    case AmbientStatus::SensorNotReady:
+      return "SHT3X_NOT_READY";
+    case AmbientStatus::CommandError:
+      return "SHT3X_COMMAND_ERROR";
+    case AmbientStatus::ReadError:
+      return "SHT3X_READ_ERROR";
+    case AmbientStatus::CrcError:
+      return "SHT3X_CRC_ERROR";
+  }
+  return "SHT3X_UNKNOWN_ERROR";
+}
+
+void initializeDeviceId() {
+  const uint64_t chipId = ESP.getEfuseMac();
+  snprintf(deviceId, sizeof(deviceId), "ESP32-%012llX",
+           static_cast<unsigned long long>(chipId & 0xFFFFFFFFFFFFULL));
+}
+
+bool wifiCredentialsAvailable() {
+  return std::strlen(Secrets::WIFI_SSID) > 0 &&
+         std::strcmp(Secrets::WIFI_SSID, "NOME_RETE_WIFI") != 0;
+}
+
+bool connectWifi() {
+  if (!wifiCredentialsAvailable()) {
+    emitEvent("error", "WIFI_CREDENTIALS_MISSING");
+    return false;
+  }
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(Secrets::WIFI_SSID, Secrets::WIFI_PASSWORD);
+  emitEvent("status", "WIFI_CONNECTING");
+
+  const uint32_t startedAt = millis();
+  while (WiFi.status() != WL_CONNECTED &&
+         millis() - startedAt < Config::WIFI_TIMEOUT_MS) {
+    delay(100);
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    emitEvent("error", "WIFI_TIMEOUT");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    return false;
+  }
+  emitEvent("status", "WIFI_CONNECTED");
+  return true;
+}
+
+bool synchronizeTime() {
+  setenv("TZ", Config::TIMEZONE, 1);
+  tzset();
+  configTime(0, 0, Config::NTP_SERVER_1, Config::NTP_SERVER_2);
+  emitEvent("status", "NTP_SYNCHRONIZING");
+
+  const uint32_t startedAt = millis();
+  while (time(nullptr) < Config::MIN_VALID_EPOCH &&
+         millis() - startedAt < Config::NTP_TIMEOUT_MS) {
+    delay(100);
+  }
+  if (time(nullptr) < Config::MIN_VALID_EPOCH) {
+    emitEvent("error", "NTP_TIMEOUT");
+    return false;
+  }
+  emitEvent("status", "NTP_SYNCHRONIZED");
+  return true;
+}
+
+bool formatLocalTime(time_t timestamp, char* iso, size_t isoSize,
+                     char* dateCompact = nullptr,
+                     size_t dateCompactSize = 0,
+                     char* timeCompact = nullptr,
+                     size_t timeCompactSize = 0) {
+  struct tm localTime = {};
+  if (localtime_r(&timestamp, &localTime) == nullptr) {
+    return false;
+  }
+
+  char dateTime[24] = {};
+  char offset[8] = {};
+  if (strftime(dateTime, sizeof(dateTime), "%Y-%m-%dT%H:%M:%S",
+               &localTime) == 0 ||
+      strftime(offset, sizeof(offset), "%z", &localTime) == 0 ||
+      std::strlen(offset) != 5) {
+    return false;
+  }
+  snprintf(iso, isoSize, "%s%c%c%c:%c%c", dateTime, offset[0], offset[1],
+           offset[2], offset[3], offset[4]);
+
+  if (dateCompact != nullptr && dateCompactSize > 0) {
+    strftime(dateCompact, dateCompactSize, "%Y%m%d", &localTime);
+  }
+  if (timeCompact != nullptr && timeCompactSize > 0) {
+    strftime(timeCompact, timeCompactSize, "%H%M%S", &localTime);
+  }
+  return true;
+}
+
+void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
+  Serial.print(F("{\"schema\":\"fermentlab.session.v1\",\"type\":\"session_start\",\"device_id\":\""));
+  Serial.print(deviceId);
+  Serial.print(F("\",\"session_id\":\""));
+  Serial.print(sessionId);
+  Serial.print(F("\",\"timestamp\":\""));
+  Serial.print(isoTimestamp);
+  Serial.print(F("\",\"epoch_s\":"));
+  Serial.print(static_cast<unsigned long>(timestamp));
+  Serial.print(F(",\"timezone\":\"Europe/Berlin\",\"interval_s\":"));
+  Serial.print(TIMEINTERVAL);
+  Serial.println(F("}"));
+}
+
+void emitMeasurement() {
+  const time_t timestamp = time(nullptr);
+  char isoTimestamp[40] = {};
+  if (timestamp < Config::MIN_VALID_EPOCH ||
+      !formatLocalTime(timestamp, isoTimestamp, sizeof(isoTimestamp))) {
+    emitEvent("error", "INVALID_TIMESTAMP");
+    return;
+  }
+
+  const AmbientReading ambient = readAmbientMeasurement();
+  const FilteredDistance distance = acquireFilteredDistance();
+
+  float correctedDistanceMm = NAN;
+  float growthMm = NAN;
+  const char* distanceStatus = "INSUFFICIENT_READINGS";
+  if (!distanceSensorReady) {
+    distanceStatus = "VL53L0X_NOT_READY";
+  } else if (distance.available()) {
+    correctedDistanceMm =
+        (static_cast<float>(distance.median) -
+         Config::CALIBRATION_INTERCEPT_MM) /
+        Config::CALIBRATION_SLOPE;
+    if (correctedDistanceMm < Config::CALIBRATED_MIN_MM ||
+        correctedDistanceMm > Config::CALIBRATED_MAX_MM) {
+      correctedDistanceMm = NAN;
+      distanceStatus = "OUTSIDE_CALIBRATED_RANGE";
+    } else {
+      if (!baselineAvailable) {
+        baselineDistanceMm = correctedDistanceMm;
+        baselineAvailable = true;
+        distanceStatus = "BASELINE_INITIALIZED";
+      } else {
+        distanceStatus = "OK";
+      }
+      growthMm = baselineDistanceMm - correctedDistanceMm;
+    }
+  }
+
+  Serial.print(F("{\"schema\":\"fermentlab.measurement.v1\",\"type\":\"measurement\",\"device_id\":\""));
+  Serial.print(deviceId);
+  Serial.print(F("\",\"session_id\":\""));
+  Serial.print(sessionId);
+  Serial.print(F("\",\"sequence\":"));
+  Serial.print(sequenceNumber++);
+  Serial.print(F(",\"timestamp\":\""));
+  Serial.print(isoTimestamp);
+  Serial.print(F("\",\"epoch_s\":"));
+  Serial.print(static_cast<unsigned long>(timestamp));
+  Serial.print(F(",\"elapsed_ms\":"));
+  Serial.print(millis() - sessionStartMs);
+  Serial.print(F(",\"ambient_temperature_c\":"));
+  printJsonFloat(ambient.temperatureC);
+  Serial.print(F(",\"ambient_humidity_pct\":"));
+  printJsonFloat(ambient.humidityPercent);
+  Serial.print(F(",\"ambient_status\":\""));
+  Serial.print(ambientStatusText(ambient.status));
+  Serial.print(F("\",\"distance_samples_valid\":"));
+  Serial.print(distance.validCount);
+  Serial.print(F(",\"distance_attempts\":"));
+  Serial.print(distance.attempts);
+  Serial.print(F(",\"distance_raw_min_mm\":"));
+  if (distance.available()) Serial.print(distance.minimum); else Serial.print(F("null"));
+  Serial.print(F(",\"distance_raw_mean_mm\":"));
+  printJsonFloat(distance.mean);
+  Serial.print(F(",\"distance_raw_median_mm\":"));
+  if (distance.available()) Serial.print(distance.median); else Serial.print(F("null"));
+  Serial.print(F(",\"distance_raw_max_mm\":"));
+  if (distance.available()) Serial.print(distance.maximum); else Serial.print(F("null"));
+  Serial.print(F(",\"distance_corrected_mm\":"));
+  printJsonFloat(correctedDistanceMm);
+  Serial.print(F(",\"growth_mm\":"));
+  printJsonFloat(growthMm);
+  Serial.print(F(",\"distance_status\":\""));
+  Serial.print(distanceStatus);
+  Serial.println(F("\"}"));
+}
+
+void startSession() {
+  if (sessionActive) {
+    return;
+  }
+  if (!distanceSensorReady || !ambientSensorReady) {
+    emitEvent("error", "SESSION_REJECTED_SENSOR_NOT_READY");
+    return;
+  }
+  if (!connectWifi()) {
+    emitEvent("error", "SESSION_REJECTED_TIME_UNAVAILABLE");
+    return;
+  }
+  if (!synchronizeTime()) {
+    emitEvent("error", "SESSION_REJECTED_TIME_UNAVAILABLE");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    return;
+  }
+
+  const time_t startTimestamp = time(nullptr);
+  char isoTimestamp[40] = {};
+  if (!formatLocalTime(startTimestamp, isoTimestamp, sizeof(isoTimestamp),
+                       sessionStartDate, sizeof(sessionStartDate),
+                       sessionStartTime, sizeof(sessionStartTime))) {
+    emitEvent("error", "SESSION_REJECTED_TIME_FORMAT");
+    return;
+  }
+
+  snprintf(sessionId, sizeof(sessionId), "%s-%s-%s", sessionStartDate,
+           sessionStartTime, deviceId);
+  baselineAvailable = false;
+  baselineDistanceMm = NAN;
+  sequenceNumber = 0;
+  sessionStartMs = millis();
+  sessionActive = true;
+  emitSessionStart(startTimestamp, isoTimestamp);
+  emitMeasurement();
+  lastReadingMs = millis();
+}
+
+void stopSession() {
+  if (!sessionActive) {
+    return;
+  }
+  const time_t endTimestamp = time(nullptr);
+  char isoTimestamp[40] = {};
+  char endTime[7] = {};
+  if (!formatLocalTime(endTimestamp, isoTimestamp, sizeof(isoTimestamp),
+                       nullptr, 0, endTime, sizeof(endTime))) {
+    emitEvent("error", "SESSION_END_TIME_FORMAT_ERROR");
+    return;
+  }
+
+  sessionActive = false;
+  char filename[128] = {};
+  snprintf(filename, sizeof(filename), "%s_%s_%s_%s.jsonl",
+           sessionStartDate, sessionStartTime, endTime, deviceId);
+
+  Serial.print(F("{\"schema\":\"fermentlab.session.v1\",\"type\":\"session_end\",\"device_id\":\""));
+  Serial.print(deviceId);
+  Serial.print(F("\",\"session_id\":\""));
+  Serial.print(sessionId);
+  Serial.print(F("\",\"timestamp\":\""));
+  Serial.print(isoTimestamp);
+  Serial.print(F("\",\"epoch_s\":"));
+  Serial.print(static_cast<unsigned long>(endTimestamp));
+  Serial.print(F(",\"measurements\":"));
+  Serial.print(sequenceNumber);
+  Serial.print(F(",\"suggested_filename\":\""));
+  Serial.print(filename);
+  Serial.println(F("\"}"));
+  Serial.flush();
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+}
+
+void toggleSession() {
+  if (sessionActive) {
+    stopSession();
+  } else {
+    startSession();
+  }
+}
+
+void pollButton() {
+  const int currentRawState = digitalRead(Config::BUTTON_PIN);
+  if (currentRawState != buttonRawState) {
+    buttonRawState = currentRawState;
+    buttonLastChangeMs = millis();
+  }
+  if (buttonRawState != buttonStableState &&
+      millis() - buttonLastChangeMs >= Config::BUTTON_DEBOUNCE_MS) {
+    buttonStableState = buttonRawState;
+    if (buttonStableState == LOW) {
+      toggleSession();
+    }
+  }
+}
+
+}  // namespace
+
+void setup() {
+  Serial.begin(Config::SERIAL_BAUD);
+  delay(500);
+
+  initializeDeviceId();
+  pinMode(Config::BUTTON_PIN, INPUT_PULLUP);
+  buttonRawState = digitalRead(Config::BUTTON_PIN);
+  buttonStableState = buttonRawState;
+  buttonLastChangeMs = millis();
+
+  setenv("TZ", Config::TIMEZONE, 1);
+  tzset();
+
+  Wire.begin(Config::SDA_PIN, Config::SCL_PIN);
+  Wire.setClock(Config::I2C_FREQUENCY_HZ);
+  delay(100);
+
+  distanceSensorReady = initializeDistanceSensor();
+  warmUpDistanceSensor();
+  ambientSensorReady = initializeAmbientSensor();
+
+  Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"ready\",\"device_id\":\""));
+  Serial.print(deviceId);
+  Serial.print(F("\",\"button_gpio\":"));
+  Serial.print(Config::BUTTON_PIN);
+  Serial.print(F(",\"sda_gpio\":"));
+  Serial.print(Config::SDA_PIN);
+  Serial.print(F(",\"scl_gpio\":"));
+  Serial.print(Config::SCL_PIN);
+  Serial.print(F(",\"interval_s\":"));
+  Serial.print(TIMEINTERVAL);
+  Serial.println(F("}"));
+}
+
+void loop() {
+  pollButton();
+
+  if (sessionActive &&
+      millis() - lastReadingMs >= Config::READING_INTERVAL_MS) {
+    emitMeasurement();
+    lastReadingMs = millis();
+  }
+  delay(2);
+}
