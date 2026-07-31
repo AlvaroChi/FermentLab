@@ -95,15 +95,21 @@ l'affidabilità. Non muovere sensore o bersaglio durante una serie.
 
 ## Salvare le misure
 
-Per registrare l'intera sessione:
+Usare il registratore dedicato, che crea immediatamente il file e forza ogni
+blocco ricevuto su disco:
 
 ```powershell
-pio device monitor --filter log2file
+python ..\..\..\tools\serial_capture.py --port COM3 --prefix calibration
 ```
 
-In alternativa copiare da ogni blocco `CSV:` la riga numerica in
-`data/misure.csv`, sotto l'intestazione contenuta in
-`data/misure_template.csv`.
+Il percorso del log viene mostrato appena parte il programma. Inserire le
+distanze nella stessa finestra e scrivere `fine` per chiudere la sessione. Il
+programma mostra byte ricevuti e dimensione finale, e restituisce un errore se
+non ha ricevuto dati reali dall'ESP32.
+
+Il registratore richiede `pyserial`, incluso in `analysis/requirements.txt`.
+In alternativa si può copiare da ogni blocco `CSV:` la riga numerica in
+`data/misure.csv`, sotto l'intestazione di `data/misure_template.csv`.
 
 Il formato è:
 
