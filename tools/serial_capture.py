@@ -134,7 +134,7 @@ def main() -> int:
             while time.monotonic() < deadline and not stop_event.is_set():
                 time.sleep(0.1)
         else:
-            print("Scrivi una distanza o un comando. Scrivi 'fine' per salvare e uscire.")
+            print("Scrivi un comando per l'ESP32. Scrivi 'fine' per salvare e uscire.")
             while not stop_event.is_set():
                 try:
                     command = input()
