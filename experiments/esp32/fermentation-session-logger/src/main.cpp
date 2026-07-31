@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <LittleFS.h>
 #include <VL53L0X.h>
 #include <WiFi.h>
 #include <Wire.h>
@@ -32,6 +33,9 @@ char deviceId[32] = {};
 char sessionId[64] = {};
 char sessionStartDate[9] = {};
 char sessionStartTime[7] = {};
+char activeFilePath[128] = {};
+File sessionFile;
+bool storageReady = false;
 
 enum class DistanceInvalidReason : uint8_t {
   None,
@@ -78,11 +82,11 @@ struct AmbientReading {
   AmbientStatus status = AmbientStatus::SensorNotReady;
 };
 
-void printJsonFloat(float value, uint8_t decimals = 3) {
+void printJsonFloat(Print& output, float value, uint8_t decimals = 3) {
   if (isnan(value) || isinf(value)) {
-    Serial.print(F("null"));
+    output.print(F("null"));
   } else {
-    Serial.print(value, decimals);
+    output.print(value, decimals);
   }
 }
 
@@ -400,18 +404,25 @@ bool formatLocalTime(time_t timestamp, char* iso, size_t isoSize,
   return true;
 }
 
+void writeSessionStart(Print& output, time_t timestamp,
+                       const char* isoTimestamp) {
+  output.print(F("{\"schema\":\"fermentlab.session.v1\",\"type\":\"session_start\",\"device_id\":\""));
+  output.print(deviceId);
+  output.print(F("\",\"session_id\":\""));
+  output.print(sessionId);
+  output.print(F("\",\"timestamp\":\""));
+  output.print(isoTimestamp);
+  output.print(F("\",\"epoch_s\":"));
+  output.print(static_cast<unsigned long>(timestamp));
+  output.print(F(",\"timezone\":\"Europe/Berlin\",\"interval_s\":"));
+  output.print(TIMEINTERVAL);
+  output.println(F("}"));
+}
+
 void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
-  Serial.print(F("{\"schema\":\"fermentlab.session.v1\",\"type\":\"session_start\",\"device_id\":\""));
-  Serial.print(deviceId);
-  Serial.print(F("\",\"session_id\":\""));
-  Serial.print(sessionId);
-  Serial.print(F("\",\"timestamp\":\""));
-  Serial.print(isoTimestamp);
-  Serial.print(F("\",\"epoch_s\":"));
-  Serial.print(static_cast<unsigned long>(timestamp));
-  Serial.print(F(",\"timezone\":\"Europe/Berlin\",\"interval_s\":"));
-  Serial.print(TIMEINTERVAL);
-  Serial.println(F("}"));
+  writeSessionStart(Serial, timestamp, isoTimestamp);
+  writeSessionStart(sessionFile, timestamp, isoTimestamp);
+  sessionFile.flush();
 }
 
 void emitMeasurement() {
@@ -452,47 +463,85 @@ void emitMeasurement() {
     }
   }
 
-  Serial.print(F("{\"schema\":\"fermentlab.measurement.v1\",\"type\":\"measurement\",\"device_id\":\""));
+  const uint32_t currentSequence = sequenceNumber++;
+  const uint32_t elapsedMs = millis() - sessionStartMs;
+  const auto writeMeasurement = [&](Print& output) {
+    output.print(F("{\"schema\":\"fermentlab.measurement.v1\",\"type\":\"measurement\",\"device_id\":\""));
+    output.print(deviceId);
+    output.print(F("\",\"session_id\":\""));
+    output.print(sessionId);
+    output.print(F("\",\"sequence\":"));
+    output.print(currentSequence);
+    output.print(F(",\"timestamp\":\""));
+    output.print(isoTimestamp);
+    output.print(F("\",\"epoch_s\":"));
+    output.print(static_cast<unsigned long>(timestamp));
+    output.print(F(",\"elapsed_ms\":"));
+    output.print(elapsedMs);
+    output.print(F(",\"ambient_temperature_c\":"));
+    printJsonFloat(output, ambient.temperatureC);
+    output.print(F(",\"ambient_humidity_pct\":"));
+    printJsonFloat(output, ambient.humidityPercent);
+    output.print(F(",\"ambient_status\":\""));
+    output.print(ambientStatusText(ambient.status));
+    output.print(F("\",\"distance_samples_valid\":"));
+    output.print(distance.validCount);
+    output.print(F(",\"distance_attempts\":"));
+    output.print(distance.attempts);
+    output.print(F(",\"distance_raw_min_mm\":"));
+    if (distance.available()) output.print(distance.minimum); else output.print(F("null"));
+    output.print(F(",\"distance_raw_mean_mm\":"));
+    printJsonFloat(output, distance.mean);
+    output.print(F(",\"distance_raw_median_mm\":"));
+    if (distance.available()) output.print(distance.median); else output.print(F("null"));
+    output.print(F(",\"distance_raw_max_mm\":"));
+    if (distance.available()) output.print(distance.maximum); else output.print(F("null"));
+    output.print(F(",\"distance_corrected_mm\":"));
+    printJsonFloat(output, correctedDistanceMm);
+    output.print(F(",\"growth_mm\":"));
+    printJsonFloat(output, growthMm);
+    output.print(F(",\"distance_status\":\""));
+    output.print(distanceStatus);
+    output.println(F("\"}"));
+  };
+
+  writeMeasurement(Serial);
+  writeMeasurement(sessionFile);
+  sessionFile.flush();
+}
+
+void dumpSavedFile(const char* path, const char* filename) {
+  File savedFile = LittleFS.open(path, FILE_READ);
+  if (!savedFile) {
+    emitEvent("error", "FILE_DUMP_OPEN_FAILED");
+    return;
+  }
+  Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"file_dump_start\",\"device_id\":\""));
   Serial.print(deviceId);
-  Serial.print(F("\",\"session_id\":\""));
-  Serial.print(sessionId);
-  Serial.print(F("\",\"sequence\":"));
-  Serial.print(sequenceNumber++);
-  Serial.print(F(",\"timestamp\":\""));
-  Serial.print(isoTimestamp);
-  Serial.print(F("\",\"epoch_s\":"));
-  Serial.print(static_cast<unsigned long>(timestamp));
-  Serial.print(F(",\"elapsed_ms\":"));
-  Serial.print(millis() - sessionStartMs);
-  Serial.print(F(",\"ambient_temperature_c\":"));
-  printJsonFloat(ambient.temperatureC);
-  Serial.print(F(",\"ambient_humidity_pct\":"));
-  printJsonFloat(ambient.humidityPercent);
-  Serial.print(F(",\"ambient_status\":\""));
-  Serial.print(ambientStatusText(ambient.status));
-  Serial.print(F("\",\"distance_samples_valid\":"));
-  Serial.print(distance.validCount);
-  Serial.print(F(",\"distance_attempts\":"));
-  Serial.print(distance.attempts);
-  Serial.print(F(",\"distance_raw_min_mm\":"));
-  if (distance.available()) Serial.print(distance.minimum); else Serial.print(F("null"));
-  Serial.print(F(",\"distance_raw_mean_mm\":"));
-  printJsonFloat(distance.mean);
-  Serial.print(F(",\"distance_raw_median_mm\":"));
-  if (distance.available()) Serial.print(distance.median); else Serial.print(F("null"));
-  Serial.print(F(",\"distance_raw_max_mm\":"));
-  if (distance.available()) Serial.print(distance.maximum); else Serial.print(F("null"));
-  Serial.print(F(",\"distance_corrected_mm\":"));
-  printJsonFloat(correctedDistanceMm);
-  Serial.print(F(",\"growth_mm\":"));
-  printJsonFloat(growthMm);
-  Serial.print(F(",\"distance_status\":\""));
-  Serial.print(distanceStatus);
+  Serial.print(F("\",\"filename\":\""));
+  Serial.print(filename);
+  Serial.println(F("\"}"));
+  while (savedFile.available()) {
+    String line = savedFile.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 0) {
+      Serial.println(line);
+    }
+  }
+  savedFile.close();
+  Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"file_dump_end\",\"device_id\":\""));
+  Serial.print(deviceId);
+  Serial.print(F("\",\"filename\":\""));
+  Serial.print(filename);
   Serial.println(F("\"}"));
 }
 
 void startSession() {
   if (sessionActive) {
+    return;
+  }
+  if (!storageReady) {
+    emitEvent("error", "SESSION_REJECTED_STORAGE_NOT_READY");
     return;
   }
   if (!distanceSensorReady || !ambientSensorReady) {
@@ -521,6 +570,17 @@ void startSession() {
 
   snprintf(sessionId, sizeof(sessionId), "%s-%s-%s", sessionStartDate,
            sessionStartTime, deviceId);
+  snprintf(activeFilePath, sizeof(activeFilePath), "/%s.partial.jsonl",
+           sessionId);
+  if (LittleFS.exists(activeFilePath)) {
+    emitEvent("error", "SESSION_FILE_ALREADY_EXISTS");
+    return;
+  }
+  sessionFile = LittleFS.open(activeFilePath, FILE_WRITE);
+  if (!sessionFile) {
+    emitEvent("error", "SESSION_FILE_OPEN_FAILED");
+    return;
+  }
   baselineAvailable = false;
   baselineDistanceMm = NAN;
   sequenceNumber = 0;
@@ -546,23 +606,45 @@ void stopSession() {
 
   sessionActive = false;
   char filename[128] = {};
+  char finalPath[132] = {};
   snprintf(filename, sizeof(filename), "%s_%s_%s_%s.jsonl",
            sessionStartDate, sessionStartTime, endTime, deviceId);
+  snprintf(finalPath, sizeof(finalPath), "/%s", filename);
 
-  Serial.print(F("{\"schema\":\"fermentlab.session.v1\",\"type\":\"session_end\",\"device_id\":\""));
-  Serial.print(deviceId);
-  Serial.print(F("\",\"session_id\":\""));
-  Serial.print(sessionId);
-  Serial.print(F("\",\"timestamp\":\""));
-  Serial.print(isoTimestamp);
-  Serial.print(F("\",\"epoch_s\":"));
-  Serial.print(static_cast<unsigned long>(endTimestamp));
-  Serial.print(F(",\"measurements\":"));
-  Serial.print(sequenceNumber);
-  Serial.print(F(",\"suggested_filename\":\""));
-  Serial.print(filename);
-  Serial.println(F("\"}"));
+  const auto writeSessionEnd = [&](Print& output) {
+    output.print(F("{\"schema\":\"fermentlab.session.v1\",\"type\":\"session_end\",\"device_id\":\""));
+    output.print(deviceId);
+    output.print(F("\",\"session_id\":\""));
+    output.print(sessionId);
+    output.print(F("\",\"timestamp\":\""));
+    output.print(isoTimestamp);
+    output.print(F("\",\"epoch_s\":"));
+    output.print(static_cast<unsigned long>(endTimestamp));
+    output.print(F(",\"measurements\":"));
+    output.print(sequenceNumber);
+    output.print(F(",\"suggested_filename\":\""));
+    output.print(filename);
+    output.println(F("\"}"));
+  };
+  writeSessionEnd(Serial);
+  writeSessionEnd(sessionFile);
+  sessionFile.flush();
+  const size_t savedBytes = sessionFile.size();
+  sessionFile.close();
   Serial.flush();
+
+  if (!LittleFS.rename(activeFilePath, finalPath)) {
+    emitEvent("error", "SESSION_FILE_RENAME_FAILED");
+  } else {
+    Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"file_saved\",\"device_id\":\""));
+    Serial.print(deviceId);
+    Serial.print(F("\",\"filename\":\""));
+    Serial.print(filename);
+    Serial.print(F("\",\"bytes\":"));
+    Serial.print(savedBytes);
+    Serial.println(F("}"));
+    dumpSavedFile(finalPath, filename);
+  }
 
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
@@ -598,6 +680,9 @@ void setup() {
   delay(500);
 
   initializeDeviceId();
+  storageReady = LittleFS.begin(true);
+  emitEvent(storageReady ? "status" : "error",
+            storageReady ? "LITTLEFS_READY" : "LITTLEFS_MOUNT_FAILED");
   pinMode(Config::BUTTON_PIN, INPUT_PULLUP);
   buttonRawState = digitalRead(Config::BUTTON_PIN);
   buttonStableState = buttonRawState;

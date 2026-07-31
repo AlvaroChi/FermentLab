@@ -1,8 +1,8 @@
 # Fermentation Session Logger
 
 Firmware ESP32 che avvia e chiude una sessione tramite un pulsante tra GPIO4
-e GND. Ogni misura viene emessa come JSON Line e salvata dal PC in un file
-rinominato automaticamente alla fine della sessione.
+e GND. Ogni misura viene emessa come JSON Line e salvata nella memoria interna
+LittleFS dell'ESP32.
 
 ## Hardware
 
@@ -22,7 +22,8 @@ password usando `include/Secrets.example.h` come riferimento.
 
 - prima pressione: connessione Wi-Fi, sincronizzazione NTP e avvio sessione;
 - lettura immediata, poi ogni `TIMEINTERVAL` secondi;
-- seconda pressione: emissione dell'evento finale e chiusura del file sul PC;
+- seconda pressione: chiusura e rinomina del file nella memoria dell'ESP32;
+- dopo la chiusura stampa automaticamente l'intero JSONL nel Serial Monitor;
 - fuso `Europe/Berlin`, con passaggio automatico CET/CEST;
 - ID hardware derivato dall'eFuse MAC dell'ESP32;
 - distanza filtrata con mediana di 7 letture e correzione validata 50-175 mm;
@@ -39,7 +40,13 @@ oppure:
 pio run --target upload --upload-port COM3
 ```
 
-## Acquisizione e chiusura automatica
+## Serial Monitor
+
+Il normale Serial Monitor di PlatformIO mostra le misure durante la sessione.
+Alla seconda pressione stampa `file_saved`, seguito dal contenuto completo del
+file tra `file_dump_start` e `file_dump_end`.
+
+## Acquisizione opzionale sul PC
 
 Dal terminale integrato aperto nella cartella di questo progetto:
 
