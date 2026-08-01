@@ -58,6 +58,11 @@ uint32_t wifiAttemptStartedMs = 0;
 uint32_t nextWifiAttemptMs = 0;
 uint32_t wifiRetryDelayMs = Config::WIFI_RETRY_INITIAL_MS;
 uint32_t lastSensorRetryMs = 0;
+uint8_t i2cDeviceCount = 0;
+uint8_t i2cScanErrors = 0;
+int i2cSdaLevel = HIGH;
+int i2cSclLevel = HIGH;
+char i2cAddressSummary[192] = "non ancora scansionato";
 
 enum class DistanceInvalidReason : uint8_t {
   None,
@@ -119,6 +124,60 @@ void emitEvent(const char* type, const char* code) {
   Serial.print(deviceId);
   Serial.print(F("\",\"code\":\""));
   Serial.print(code);
+  Serial.println(F("\"}"));
+}
+
+void scanI2cBus() {
+  i2cDeviceCount = 0;
+  i2cScanErrors = 0;
+  i2cAddressSummary[0] = '\0';
+  i2cSdaLevel = digitalRead(Config::SDA_PIN);
+  i2cSclLevel = digitalRead(Config::SCL_PIN);
+
+  // A low idle line indicates a short, missing pull-up or a peripheral holding
+  // the bus. Avoid 126 pointless transactions in that condition.
+  if (i2cSdaLevel == HIGH && i2cSclLevel == HIGH) {
+    for (uint8_t address = 1; address < 127; ++address) {
+      Wire.beginTransmission(address);
+      const uint8_t result = Wire.endTransmission();
+      if (result == 0) {
+        ++i2cDeviceCount;
+        const size_t used = strlen(i2cAddressSummary);
+        if (used + 8 < sizeof(i2cAddressSummary)) {
+          snprintf(i2cAddressSummary + used,
+                   sizeof(i2cAddressSummary) - used, "%s0x%02X",
+                   used == 0 ? "" : ", ", address);
+        }
+      } else if (result != 2) {
+        ++i2cScanErrors;
+      }
+      if ((address & 0x0F) == 0) yield();
+    }
+  }
+  i2cSdaLevel = digitalRead(Config::SDA_PIN);
+  i2cSclLevel = digitalRead(Config::SCL_PIN);
+  if (i2cAddressSummary[0] == '\0') {
+    snprintf(i2cAddressSummary, sizeof(i2cAddressSummary), "nessuno");
+  }
+
+  Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"i2c_scan\",\"device_id\":\""));
+  Serial.print(deviceId);
+  Serial.print(F("\",\"frequency_hz\":"));
+  Serial.print(Config::I2C_FREQUENCY_HZ);
+  Serial.print(F(",\"sda_gpio\":"));
+  Serial.print(Config::SDA_PIN);
+  Serial.print(F(",\"sda_level\":"));
+  Serial.print(i2cSdaLevel);
+  Serial.print(F(",\"scl_gpio\":"));
+  Serial.print(Config::SCL_PIN);
+  Serial.print(F(",\"scl_level\":"));
+  Serial.print(i2cSclLevel);
+  Serial.print(F(",\"device_count\":"));
+  Serial.print(i2cDeviceCount);
+  Serial.print(F(",\"scan_errors\":"));
+  Serial.print(i2cScanErrors);
+  Serial.print(F(",\"addresses\":\""));
+  Serial.print(i2cAddressSummary);
   Serial.println(F("\"}"));
 }
 
@@ -470,6 +529,7 @@ void serviceSensorRecovery() {
     return;
   }
   lastSensorRetryMs = now;
+  scanI2cBus();
 
   if (!distanceSensorReady) {
     distanceSensorReady = initializeDistanceSensor();
@@ -843,6 +903,19 @@ String webStatusJson() {
   json += distanceSensorReady ? F("true") : F("false");
   json += F(",\"ambient_sensor_ready\":");
   json += ambientSensorReady ? F("true") : F("false");
+  json += F(",\"i2c_frequency_hz\":");
+  json += String(Config::I2C_FREQUENCY_HZ);
+  json += F(",\"i2c_sda_level\":");
+  json += String(i2cSdaLevel);
+  json += F(",\"i2c_scl_level\":");
+  json += String(i2cSclLevel);
+  json += F(",\"i2c_device_count\":");
+  json += String(i2cDeviceCount);
+  json += F(",\"i2c_scan_errors\":");
+  json += String(i2cScanErrors);
+  json += F(",\"i2c_addresses\":\"");
+  json += i2cAddressSummary;
+  json += '"';
   json += F(",\"recipe_config_ready\":");
   json += recipeConfigReady ? F("true") : F("false");
   json += F(",\"start_blocker\":");
@@ -1043,6 +1116,7 @@ void setup() {
   Wire.begin(Config::SDA_PIN, Config::SCL_PIN);
   Wire.setClock(Config::I2C_FREQUENCY_HZ);
   delay(100);
+  scanI2cBus();
 
   distanceSensorReady = initializeDistanceSensor();
   warmUpDistanceSensor();
