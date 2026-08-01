@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <Preferences.h>
 #include <VL53L0X.h>
 #include <WiFi.h>
 #include <Wire.h>
@@ -62,6 +63,9 @@ uint8_t i2cDeviceCount = 0;
 uint8_t i2cScanErrors = 0;
 int i2cSdaLevel = HIGH;
 int i2cSclLevel = HIGH;
+bool i2cBusValid = false;
+bool i2cDistancePresent = false;
+bool i2cAmbientPresent = false;
 char i2cAddressSummary[192] = "non ancora scansionato";
 
 enum class DistanceInvalidReason : uint8_t {
@@ -127,9 +131,34 @@ void emitEvent(const char* type, const char* code) {
   Serial.println(F("\"}"));
 }
 
+bool mountLittleFsSafely() {
+  Preferences preferences;
+  const bool preferencesReady = preferences.begin("fermentlab", false);
+  const bool previouslyInitialized =
+      preferencesReady && preferences.getBool("fs-ready", false);
+
+  bool mounted = LittleFS.begin(false);
+  if (!mounted && preferencesReady && !previouslyInitialized) {
+    // A factory-new ESP32 has an erased, unformatted data partition. Format
+    // only once, before a successful filesystem has ever been recorded in
+    // NVS. A later mount failure is treated as recoverable corruption and is
+    // never formatted automatically.
+    emitEvent("status", "LITTLEFS_FIRST_BOOT_FORMAT");
+    mounted = LittleFS.format() && LittleFS.begin(false);
+  }
+  if (mounted && preferencesReady) {
+    preferences.putBool("fs-ready", true);
+  }
+  if (preferencesReady) preferences.end();
+  return mounted;
+}
+
 void scanI2cBus() {
   i2cDeviceCount = 0;
   i2cScanErrors = 0;
+  i2cBusValid = false;
+  i2cDistancePresent = false;
+  i2cAmbientPresent = false;
   i2cAddressSummary[0] = '\0';
   i2cSdaLevel = digitalRead(Config::SDA_PIN);
   i2cSclLevel = digitalRead(Config::SCL_PIN);
@@ -142,6 +171,13 @@ void scanI2cBus() {
       const uint8_t result = Wire.endTransmission();
       if (result == 0) {
         ++i2cDeviceCount;
+        if (address == Config::VL53L0X_I2C_ADDRESS) {
+          i2cDistancePresent = true;
+        }
+        if (address == Config::SHT3X_DEFAULT_I2C_ADDRESS ||
+            address == Config::SHT3X_ALTERNATE_I2C_ADDRESS) {
+          i2cAmbientPresent = true;
+        }
         const size_t used = strlen(i2cAddressSummary);
         if (used + 8 < sizeof(i2cAddressSummary)) {
           snprintf(i2cAddressSummary + used,
@@ -156,7 +192,15 @@ void scanI2cBus() {
   }
   i2cSdaLevel = digitalRead(Config::SDA_PIN);
   i2cSclLevel = digitalRead(Config::SCL_PIN);
-  if (i2cAddressSummary[0] == '\0') {
+  i2cBusValid = i2cSdaLevel == HIGH && i2cSclLevel == HIGH &&
+                i2cScanErrors == 0 && i2cDeviceCount <= 16;
+  if (!i2cBusValid) {
+    i2cDeviceCount = 0;
+    i2cDistancePresent = false;
+    i2cAmbientPresent = false;
+    snprintf(i2cAddressSummary, sizeof(i2cAddressSummary),
+             "bus bloccato o risposta anomala");
+  } else if (i2cAddressSummary[0] == '\0') {
     snprintf(i2cAddressSummary, sizeof(i2cAddressSummary), "nessuno");
   }
 
@@ -174,6 +218,8 @@ void scanI2cBus() {
   Serial.print(i2cSclLevel);
   Serial.print(F(",\"device_count\":"));
   Serial.print(i2cDeviceCount);
+  Serial.print(F(",\"bus_valid\":"));
+  Serial.print(i2cBusValid ? F("true") : F("false"));
   Serial.print(F(",\"scan_errors\":"));
   Serial.print(i2cScanErrors);
   Serial.print(F(",\"addresses\":\""));
@@ -182,6 +228,7 @@ void scanI2cBus() {
 }
 
 bool i2cDevicePresent(uint8_t address) {
+  if (!i2cBusValid) return false;
   Wire.beginTransmission(address);
   return Wire.endTransmission() == 0;
 }
@@ -521,9 +568,6 @@ bool formatLocalTime(time_t timestamp, char* iso, size_t isoSize,
 }
 
 void serviceSensorRecovery() {
-  if (distanceSensorReady && ambientSensorReady) {
-    return;
-  }
   const uint32_t now = millis();
   if (now - lastSensorRetryMs < Config::SENSOR_RETRY_INTERVAL_MS) {
     return;
@@ -531,14 +575,23 @@ void serviceSensorRecovery() {
   lastSensorRetryMs = now;
   scanI2cBus();
 
-  if (!distanceSensorReady) {
+  if (distanceSensorReady && !i2cDistancePresent) {
+    distanceSensorReady = false;
+    emitEvent("error", "VL53L0X_LOST");
+  }
+  if (ambientSensorReady && !i2cAmbientPresent) {
+    ambientSensorReady = false;
+    emitEvent("error", "SHT3X_LOST");
+  }
+
+  if (!distanceSensorReady && i2cBusValid) {
     distanceSensorReady = initializeDistanceSensor();
     if (distanceSensorReady) {
       warmUpDistanceSensor();
       emitEvent("status", "VL53L0X_RECOVERED");
     }
   }
-  if (!ambientSensorReady) {
+  if (!ambientSensorReady && i2cBusValid) {
     ambientSensorReady = initializeAmbientSensor();
     if (ambientSensorReady) {
       emitEvent("status", "SHT3X_RECOVERED");
@@ -911,6 +964,8 @@ String webStatusJson() {
   json += String(i2cSclLevel);
   json += F(",\"i2c_device_count\":");
   json += String(i2cDeviceCount);
+  json += F(",\"i2c_bus_valid\":");
+  json += i2cBusValid ? F("true") : F("false");
   json += F(",\"i2c_scan_errors\":");
   json += String(i2cScanErrors);
   json += F(",\"i2c_addresses\":\"");
@@ -1089,7 +1144,7 @@ void setup() {
   delay(500);
 
   initializeDeviceId();
-  storageReady = LittleFS.begin(false);
+  storageReady = mountLittleFsSafely();
   emitEvent(storageReady ? "status" : "error",
             storageReady ? "LITTLEFS_READY" : "LITTLEFS_MOUNT_FAILED");
   if (storageReady) {
@@ -1115,6 +1170,7 @@ void setup() {
 
   Wire.begin(Config::SDA_PIN, Config::SCL_PIN);
   Wire.setClock(Config::I2C_FREQUENCY_HZ);
+  Wire.setTimeOut(Config::I2C_TRANSACTION_TIMEOUT_MS);
   delay(100);
   scanI2cBus();
 
