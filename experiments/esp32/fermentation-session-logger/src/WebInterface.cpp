@@ -50,7 +50,9 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
   <section class="panel details">
     <div><span>Dispositivo</span><span id="device">—</span></div><div><span>IP</span><span id="ip">—</span></div>
     <div><span>Segnale Wi-Fi</span><span id="rssi">—</span></div><div><span>Uptime</span><span id="uptime">—</span></div>
-    <div><span>Coda</span><span id="queue">—</span></div><div><span>Orologio</span><span id="clock">—</span></div>
+    <div><span>Intervallo previsto</span><span id="interval">—</span></div><div><span>Letture sessione</span><span id="measurements">—</span></div>
+    <div><span>Prossima lettura</span><span id="nextReading">—</span></div><div><span>Ultima misura</span><span id="lastMeasurement">—</span></div>
+    <div><span>Letture in coda</span><span id="queue">—</span></div><div><span>Orologio</span><span id="clock">—</span></div>
   </section>
 </main>
 <script>
@@ -58,7 +60,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
   const $=id=>document.getElementById(id);
   const value=(v,unit,digits=2)=>v==null?'—':Number(v).toFixed(digits)+' '+unit;
   async function api(path,options){const response=await fetch(path,{cache:'no-store',...options});if(!response.ok)throw new Error('HTTP '+response.status);return response.json()}
-  function renderStatus(s){state=s;$('connection').textContent='Online';$('connection').className='badge on';$('sessionTitle').textContent=s.session_active?'Sessione attiva':'Sessione ferma';$('sessionId').textContent=s.session_active?s.session_id:'Nessuna sessione attiva';$('toggleButton').textContent=s.session_active?'STOP':'START';$('toggleButton').className=s.session_active?'toggle stop':'toggle';$('time').textContent=s.timestamp||'Ora non sincronizzata';$('device').textContent=s.device_id;$('ip').textContent=s.ip;$('rssi').textContent=s.rssi_dbm+' dBm';$('uptime').textContent=Math.floor(s.uptime_s/60)+' min';$('queue').textContent=s.queue_segments+' segmenti / '+s.queue_bytes+' B';$('clock').textContent=s.time_valid?'Sincronizzato':'In attesa NTP'}
+  function renderStatus(s){state=s;$('connection').textContent='Online';$('connection').className='badge on';$('sessionTitle').textContent=s.session_active?'Sessione attiva':'Sessione ferma';$('sessionId').textContent=s.session_active?s.session_id:'Nessuna sessione attiva';$('toggleButton').textContent=s.session_active?'STOP':'START';$('toggleButton').className=s.session_active?'toggle stop':'toggle';$('time').textContent=s.timestamp||'Ora non sincronizzata';$('device').textContent=s.device_id;$('ip').textContent=s.ip;$('rssi').textContent=s.rssi_dbm+' dBm';$('uptime').textContent=Math.floor(s.uptime_s/60)+' min';$('interval').textContent=s.reading_interval_s+' s';$('measurements').textContent=s.session_measurements;$('nextReading').textContent=s.next_reading_in_s==null?'—':s.next_reading_in_s+' s';$('lastMeasurement').textContent=s.last_measurement_at||'—';$('queue').textContent=s.queue_records+' letture / '+s.queue_segments+' segmenti / '+s.queue_bytes+' B';$('clock').textContent=s.time_valid?'Sincronizzato':'In attesa NTP'}
   function renderTest(t){$('testTime').textContent=t.timestamp||'Timestamp non disponibile';$('temperature').textContent=value(t.ambient_temperature_c,'°C');$('humidity').textContent=value(t.humidity_pct,'%');$('distance').textContent=value(t.distance_corrected_mm,'mm',3);$('distanceStatus').textContent=t.distance_status}
   async function refresh(){try{renderStatus(await api('/api/status'))}catch(e){$('connection').textContent='Offline';$('connection').className='badge';$('notice').textContent='ESP32 non raggiungibile: '+e.message}}
   $('testButton').addEventListener('click',async()=>{const b=$('testButton');b.disabled=true;$('notice').textContent='Acquisizione in corso...';try{renderTest(await api('/api/test',{method:'POST'}));$('notice').textContent='Campione acquisito senza salvataggio.'}catch(e){$('notice').textContent='Test fallito: '+e.message}finally{b.disabled=false}});

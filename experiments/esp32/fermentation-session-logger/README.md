@@ -91,8 +91,11 @@ La pagina offre:
 - **Test lettura**: acquisisce un campione SHT3x/VL53L0X e lo mostra nella
   pagina senza salvarlo su LittleFS e senza inviarlo a InfluxDB;
 - **START/STOP**: richiama la stessa funzione del pulsante fisico GPIO4;
-- stato sessione, timestamp, IP, segnale Wi-Fi, uptime e dimensione della coda
-  InfluxDB persistente.
+- stato sessione, timestamp, IP, segnale Wi-Fi e uptime;
+- intervallo previsto, letture effettuate, tempo alla prossima lettura e ultima
+  misura;
+- numero reale di letture in coda, segmenti e byte della coda InfluxDB
+  persistente.
 
 L'interfaccia non richiede Internet, ma telefono ed ESP32 devono essere sulla
 stessa rete locale. Non e' presente autenticazione: non pubblicare la porta 80

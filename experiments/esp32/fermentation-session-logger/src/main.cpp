@@ -28,6 +28,7 @@ float baselineDistanceMm = NAN;
 uint32_t sessionStartMs = 0;
 uint32_t lastReadingMs = 0;
 uint32_t sequenceNumber = 0;
+time_t lastMeasurementTimestamp = 0;
 
 int buttonRawState = HIGH;
 int buttonStableState = HIGH;
@@ -593,6 +594,7 @@ void emitMeasurement() {
       !telemetryQueue.enqueue(toInfluxLineProtocol(record))) {
     emitEvent("error", "TELEMETRY_QUEUE_WRITE_FAILED");
   }
+  lastMeasurementTimestamp = timestamp;
 }
 
 void dumpSavedFile(const char* path, const char* filename) {
@@ -742,6 +744,20 @@ String webStatusJson() {
   const bool timeValid =
       timestamp >= Config::MIN_VALID_EPOCH &&
       formatLocalTime(timestamp, isoTimestamp, sizeof(isoTimestamp));
+  char lastMeasurementIso[40] = {};
+  const bool lastMeasurementAvailable =
+      lastMeasurementTimestamp >= Config::MIN_VALID_EPOCH &&
+      formatLocalTime(lastMeasurementTimestamp, lastMeasurementIso,
+                      sizeof(lastMeasurementIso));
+  uint32_t nextReadingSeconds = 0;
+  if (sessionActive) {
+    const uint32_t elapsedSinceReading = millis() - lastReadingMs;
+    const uint32_t remainingMs =
+        elapsedSinceReading >= Config::READING_INTERVAL_MS
+            ? 0
+            : Config::READING_INTERVAL_MS - elapsedSinceReading;
+    nextReadingSeconds = (remainingMs + 999UL) / 1000UL;
+  }
 
   String json;
   json.reserve(448);
@@ -773,6 +789,22 @@ String webStatusJson() {
   json += String(WiFi.RSSI());
   json += F(",\"uptime_s\":");
   json += String(millis() / 1000UL);
+  json += F(",\"reading_interval_s\":");
+  json += String(TIMEINTERVAL);
+  json += F(",\"session_measurements\":");
+  json += String(sequenceNumber);
+  json += F(",\"next_reading_in_s\":");
+  json += sessionActive ? String(nextReadingSeconds) : String("null");
+  json += F(",\"last_measurement_at\":");
+  if (lastMeasurementAvailable) {
+    json += '"';
+    json += lastMeasurementIso;
+    json += '"';
+  } else {
+    json += F("null");
+  }
+  json += F(",\"queue_records\":");
+  json += String(telemetryQueueReady ? telemetryQueue.pendingRecords() : 0);
   json += F(",\"queue_segments\":");
   json += String(telemetryQueueReady ? telemetryQueue.segmentCount() : 0);
   json += F(",\"queue_bytes\":");

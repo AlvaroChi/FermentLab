@@ -58,6 +58,25 @@ bool PersistentQueue::begin(fs::FS& filesystem) {
   if (!scan(&minimumId, &maximumId, &count, &bytes)) {
     return false;
   }
+  pendingRecords_ = 0;
+  directory = filesystem_->open(Config::TELEMETRY_QUEUE_DIRECTORY);
+  if (!directory || !directory.isDirectory()) {
+    return false;
+  }
+  for (File entry = directory.openNextFile(); entry;
+       entry = directory.openNextFile()) {
+    uint32_t ignored = 0;
+    if (!entry.isDirectory() && parseSegmentId(entry.name(), ignored)) {
+      const char* rawName = entry.name();
+      const char* baseName = std::strrchr(rawName, '/');
+      baseName = baseName == nullptr ? rawName : baseName + 1;
+      const String path =
+          String(Config::TELEMETRY_QUEUE_DIRECTORY) + "/" + baseName;
+      entry.close();
+      pendingRecords_ += countRecordsInSegment(path);
+    }
+  }
+  directory.close();
   currentSegmentId_ = count == 0 ? 0 : maximumId;
   if (count > 0) {
     const String currentPath = segmentPath(currentSegmentId_);
@@ -106,6 +125,8 @@ bool PersistentQueue::enqueue(const String& lineProtocol) {
       written == lineProtocol.length() && newlineWritten == 1;
   if (!complete) {
     ++currentSegmentId_;
+  } else {
+    ++pendingRecords_;
   }
   return complete;
 }
@@ -138,9 +159,13 @@ bool PersistentQueue::remove(const char* path) {
     return false;
   }
   const String currentPath = segmentPath(currentSegmentId_);
+  const size_t removedRecords = countRecordsInSegment(path);
   if (!filesystem_->remove(path)) {
     return false;
   }
+  pendingRecords_ = removedRecords > pendingRecords_
+                        ? 0
+                        : pendingRecords_ - removedRecords;
   if (currentPath == path) {
     ++currentSegmentId_;
   }
@@ -222,6 +247,21 @@ size_t PersistentQueue::validSegmentBytes(const String& path) const {
   }
   file.close();
   return validSize;
+}
+
+size_t PersistentQueue::countRecordsInSegment(const String& path) const {
+  File file = filesystem_->open(path, FILE_READ);
+  if (!file) {
+    return 0;
+  }
+  size_t records = 0;
+  while (file.available()) {
+    if (file.read() == '\n') {
+      ++records;
+    }
+  }
+  file.close();
+  return records;
 }
 
 String PersistentQueue::segmentPath(uint32_t id) const {
