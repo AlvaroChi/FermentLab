@@ -25,6 +25,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
     .session{display:flex;align-items:center;justify-content:space-between;gap:16px}.session h2,.panel h2{margin:0 0 4px;font-size:20px}.muted{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
     .actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}button{appearance:none;border:0;border-radius:14px;padding:15px 18px;font:inherit;font-weight:800;cursor:pointer;transition:.15s transform,.15s opacity}
     button:active{transform:scale(.98)}button:disabled{opacity:.45;cursor:wait}.test{background:#e8efe9;color:#152019}.toggle{background:var(--green);color:#102017}.toggle.stop{background:var(--red);color:#2b0d0d}
+    .config-link{grid-column:1/-1;display:block;border:1px solid var(--line);border-radius:14px;padding:14px 18px;text-align:center;color:var(--text);background:#101814;text-decoration:none;font-weight:800}.config-link:hover{border-color:var(--green)}
     .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.metric{background:#101814;border:1px solid var(--line);border-radius:14px;padding:14px}.metric span{display:block;color:var(--muted);font-size:12px}.metric strong{display:block;font-size:21px;margin-top:4px}
     .notice{min-height:24px;margin-top:12px;color:var(--amber);font-size:14px}.details{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 20px}.details div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding:8px 0}.details span:first-child{color:var(--muted)}
     a.nav{color:var(--text);border:1px solid var(--line);border-radius:12px;padding:9px 12px;text-decoration:none;font-weight:700}.header-actions{display:flex;align-items:center;gap:8px}
@@ -36,7 +37,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
   <header><div><div class="eyebrow">ESP32 local control</div><h1>FermentLab</h1></div><div class="header-actions"><a class="nav" href="/config">Impasto e farine</a><div id="connection" class="badge">Connessione...</div></div></header>
   <section class="panel">
     <div class="session"><div><h2 id="sessionTitle">Sessione ferma</h2><div id="sessionId" class="muted">Nessuna sessione attiva</div></div><div id="time" class="muted"></div></div>
-    <div class="actions"><button id="testButton" class="test">Test lettura</button><button id="toggleButton" class="toggle">START</button></div>
+    <div class="actions"><button id="testButton" class="test">Test lettura</button><button id="toggleButton" class="toggle">START</button><a class="config-link" href="/config">Configura prossimo impasto, farine e preset →</a></div>
     <div id="notice" class="notice"></div>
   </section>
   <section class="panel">
