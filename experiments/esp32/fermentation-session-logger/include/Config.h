@@ -9,6 +9,9 @@ namespace Config {
 
 constexpr uint8_t SDA_PIN = 21;
 constexpr uint8_t SCL_PIN = 22;
+constexpr uint8_t DS18B20_PIN = 27;
+constexpr uint8_t DS18B20_RESOLUTION_BITS = 12;
+constexpr uint32_t DS18B20_CONVERSION_MS = 750;
 // 100 kHz is intentionally conservative for breadboards and longer jumpers.
 constexpr uint32_t I2C_FREQUENCY_HZ = 100000;
 constexpr uint16_t I2C_TRANSACTION_TIMEOUT_MS = 10;

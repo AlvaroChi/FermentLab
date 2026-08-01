@@ -1,5 +1,7 @@
 #include <Arduino.h>
+#include <DallasTemperature.h>
 #include <LittleFS.h>
+#include <OneWire.h>
 #include <Preferences.h>
 #include <VL53L0X.h>
 #include <WiFi.h>
@@ -20,8 +22,15 @@
 namespace {
 
 VL53L0X distanceSensor;
+OneWire doughOneWire(Config::DS18B20_PIN);
+DallasTemperature doughSensor(&doughOneWire);
+DeviceAddress doughSensorAddress = {};
 bool distanceSensorReady = false;
 bool ambientSensorReady = false;
+bool doughSensorReady = false;
+bool doughConversionPending = false;
+uint32_t doughConversionStartedMs = 0;
+float lastDoughTemperatureC = NAN;
 uint8_t ambientSensorAddress = Config::SHT3X_DEFAULT_I2C_ADDRESS;
 
 bool sessionActive = false;
@@ -107,6 +116,18 @@ struct AmbientReading {
   float temperatureC = NAN;
   float humidityPercent = NAN;
   AmbientStatus status = AmbientStatus::SensorNotReady;
+};
+
+enum class DoughStatus : uint8_t {
+  Ok,
+  SensorNotReady,
+  ConversionPending,
+  ReadError,
+};
+
+struct DoughReading {
+  float temperatureC = NAN;
+  DoughStatus status = DoughStatus::SensorNotReady;
 };
 
 void printJsonFloat(Print& output, float value, uint8_t decimals = 3) {
@@ -444,6 +465,91 @@ const char* ambientStatusText(AmbientStatus status) {
   return "SHT3X_UNKNOWN_ERROR";
 }
 
+void startDoughConversion() {
+  if (!doughSensorReady) {
+    return;
+  }
+  doughSensor.requestTemperaturesByAddress(doughSensorAddress);
+  doughConversionStartedMs = millis();
+  doughConversionPending = true;
+}
+
+bool initializeDoughSensor() {
+  doughSensor.begin();
+  doughSensor.setWaitForConversion(false);
+  if (doughSensor.getDeviceCount() == 0 ||
+      !doughSensor.getAddress(doughSensorAddress, 0) ||
+      !doughSensor.validAddress(doughSensorAddress) ||
+      !doughSensor.validFamily(doughSensorAddress)) {
+    doughSensorReady = false;
+    doughConversionPending = false;
+    lastDoughTemperatureC = NAN;
+    emitEvent("error", "DS18B20_NOT_FOUND");
+    return false;
+  }
+
+  doughSensor.setResolution(doughSensorAddress,
+                            Config::DS18B20_RESOLUTION_BITS);
+  doughSensorReady = true;
+  lastDoughTemperatureC = NAN;
+  startDoughConversion();
+  emitEvent("status", "DS18B20_READY");
+  return true;
+}
+
+void serviceDoughSensor() {
+  if (!doughSensorReady) {
+    return;
+  }
+  if (!doughConversionPending) {
+    startDoughConversion();
+    return;
+  }
+  if (millis() - doughConversionStartedMs < Config::DS18B20_CONVERSION_MS) {
+    return;
+  }
+
+  const float temperatureC = doughSensor.getTempC(doughSensorAddress);
+  doughConversionPending = false;
+  if (temperatureC == DEVICE_DISCONNECTED_C || isnan(temperatureC) ||
+      temperatureC < -55.0f || temperatureC > 125.0f) {
+    doughSensorReady = false;
+    lastDoughTemperatureC = NAN;
+    emitEvent("error", "DS18B20_LOST");
+    return;
+  }
+  lastDoughTemperatureC = temperatureC;
+  startDoughConversion();
+}
+
+DoughReading currentDoughReading() {
+  DoughReading reading;
+  if (!doughSensorReady) {
+    return reading;
+  }
+  if (isnan(lastDoughTemperatureC)) {
+    reading.status = DoughStatus::ConversionPending;
+    return reading;
+  }
+  reading.temperatureC = lastDoughTemperatureC;
+  reading.status = DoughStatus::Ok;
+  return reading;
+}
+
+const char* doughStatusText(DoughStatus status) {
+  switch (status) {
+    case DoughStatus::Ok:
+      return "OK";
+    case DoughStatus::SensorNotReady:
+      return "DS18B20_NOT_READY";
+    case DoughStatus::ConversionPending:
+      return "DS18B20_CONVERSION_PENDING";
+    case DoughStatus::ReadError:
+      return "DS18B20_READ_ERROR";
+  }
+  return "DS18B20_UNKNOWN_ERROR";
+}
+
 void initializeDeviceId() {
   const uint64_t chipId = ESP.getEfuseMac();
   snprintf(deviceId, sizeof(deviceId), "ESP32-%012llX",
@@ -593,6 +699,9 @@ void serviceSensorRecovery() {
       emitEvent("status", "SHT3X_RECOVERED");
     }
   }
+  if (!doughSensorReady && initializeDoughSensor()) {
+    emitEvent("status", "DS18B20_RECOVERED");
+  }
 }
 
 void writeSessionStart(Print& output, time_t timestamp,
@@ -629,6 +738,7 @@ void emitMeasurement() {
     return;
   }
 
+  const DoughReading dough = currentDoughReading();
   const AmbientReading ambient = readAmbientMeasurement();
   const FilteredDistance distance = acquireFilteredDistance();
 
@@ -687,7 +797,10 @@ void emitMeasurement() {
     output.print(F(",\"ambient_temperature_c\":"));
     printJsonFloat(output, ambient.temperatureC);
     output.print(F(",\"dough_temperature_c\":"));
-    printJsonFloat(output, NAN);
+    printJsonFloat(output, dough.temperatureC);
+    output.print(F(",\"dough_status\":\""));
+    output.print(doughStatusText(dough.status));
+    output.print(F("\""));
     output.print(F(",\"ambient_humidity_pct\":"));
     printJsonFloat(output, ambient.humidityPercent);
     output.print(F(",\"ambient_status\":\""));
@@ -727,6 +840,7 @@ void emitMeasurement() {
   record.sequence = currentSequence;
   record.timestamp = timestamp;
   record.elapsedMs = elapsedMs;
+  record.doughTemperatureC = dough.temperatureC;
   record.ambientTemperatureC = ambient.temperatureC;
   record.humidityPercent = ambient.humidityPercent;
   record.distanceMm = correctedDistanceMm;
@@ -952,6 +1066,16 @@ String webStatusJson() {
   json += distanceSensorReady ? F("true") : F("false");
   json += F(",\"ambient_sensor_ready\":");
   json += ambientSensorReady ? F("true") : F("false");
+  const DoughReading dough = currentDoughReading();
+  json += F(",\"dough_sensor_ready\":");
+  json += doughSensorReady ? F("true") : F("false");
+  json += F(",\"dough_sensor_gpio\":");
+  json += String(Config::DS18B20_PIN);
+  json += F(",\"dough_temperature_c\":");
+  json += jsonFloatValue(dough.temperatureC);
+  json += F(",\"dough_status\":\"");
+  json += doughStatusText(dough.status);
+  json += '"';
   json += F(",\"i2c_frequency_hz\":");
   json += String(Config::I2C_FREQUENCY_HZ);
   json += F(",\"i2c_sda_level\":");
@@ -978,6 +1102,10 @@ String webStatusJson() {
     json += F("\"Sensore VL53L0X non disponibile; nuovo tentativo automatico entro 15 secondi.\"");
   } else if (!ambientSensorReady) {
     json += F("\"Sensore SHT3x non disponibile; nuovo tentativo automatico entro 15 secondi.\"");
+  } else if (!doughSensorReady) {
+    json += F("\"Sensore DS18B20 su GPIO27 non disponibile; nuovo tentativo automatico entro 15 secondi.\"");
+  } else if (isnan(lastDoughTemperatureC)) {
+    json += F("\"Prima lettura DS18B20 ancora in corso.\"");
   } else if (!recipeConfigReady) {
     json += F("\"Configurazione impasto non disponibile in LittleFS.\"");
   } else {
@@ -1042,6 +1170,7 @@ String webTestJson() {
   const bool timeValid =
       timestamp >= Config::MIN_VALID_EPOCH &&
       formatLocalTime(timestamp, isoTimestamp, sizeof(isoTimestamp));
+  const DoughReading dough = currentDoughReading();
   const AmbientReading ambient = readAmbientMeasurement();
   const FilteredDistance distance = acquireFilteredDistance();
 
@@ -1073,6 +1202,11 @@ String webTestJson() {
   } else {
     json += F("null");
   }
+  json += F(",\"dough_temperature_c\":");
+  json += jsonFloatValue(dough.temperatureC);
+  json += F(",\"dough_status\":\"");
+  json += doughStatusText(dough.status);
+  json += '"';
   json += F(",\"ambient_temperature_c\":");
   json += jsonFloatValue(ambient.temperatureC);
   json += F(",\"humidity_pct\":");
@@ -1153,6 +1287,7 @@ void setup() {
   distanceSensorReady = initializeDistanceSensor();
   warmUpDistanceSensor();
   ambientSensorReady = initializeAmbientSensor();
+  doughSensorReady = initializeDoughSensor();
   lastSensorRetryMs = millis();
 
   webInterface.configure(webStatusJson, webTestJson, toggleSessionFromWeb);
@@ -1168,6 +1303,8 @@ void setup() {
   Serial.print(Config::SDA_PIN);
   Serial.print(F(",\"scl_gpio\":"));
   Serial.print(Config::SCL_PIN);
+  Serial.print(F(",\"ds18b20_gpio\":"));
+  Serial.print(Config::DS18B20_PIN);
   Serial.print(F(",\"interval_s\":"));
   Serial.print(TIMEINTERVAL);
   Serial.println(F("}"));
@@ -1176,6 +1313,7 @@ void setup() {
 void loop() {
   serviceConnectivity();
   serviceSensorRecovery();
+  serviceDoughSensor();
   webInterface.tick();
 
   if (sessionActive &&

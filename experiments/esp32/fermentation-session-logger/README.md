@@ -11,6 +11,7 @@ la perdita dell'arretrato.
 |---|---|
 | SDA VL53L0X + SHT3x | GPIO21 |
 | SCL VL53L0X + SHT3x | GPIO22 |
+| Dati DS18B20 (temperatura impasto) | GPIO27, pull-up 4,7 kOhm verso 3V3 |
 | Alimentazione sensori | 3V3 - GND |
 
 GPIO4 non viene configurato dal firmware e resta libero, senza pull-up interno.
@@ -64,11 +65,12 @@ volume. InfluxDB usa timestamp con precisione in secondi.
 - fuso `Europe/Rome`, con passaggio automatico CET/CEST;
 - ID hardware derivato dall'eFuse MAC dell'ESP32;
 - distanza filtrata con mediana di 7 letture e correzione validata 50-175 mm;
-- temperatura e umidita' SHT3x protette da controllo CRC.
+- temperatura e umidita' SHT3x protette da controllo CRC;
+- temperatura impasto DS18B20 a 12 bit, acquisita senza attese bloccanti.
 
-Il sensore SHT3x attuale popola la temperatura ambiente. Il campo temperatura
-impasto e' gia' previsto nello schema ma resta nullo finche' non viene collegato
-un sensore dedicato. Per calcolare altezza e volume impostare in
+Il sensore SHT3x popola la temperatura ambiente; il DS18B20 su GPIO27 popola la
+temperatura impasto nel JSONL e in InfluxDB. La resistenza da 4,7 kOhm deve
+collegare il filo dati a 3V3. Per calcolare altezza e volume impostare in
 `include/Config.h` `SENSOR_TO_CONTAINER_BOTTOM_MM` e
 `CONTAINER_CROSS_SECTION_CM2`; lasciati a zero, i due campi restano nulli.
 
@@ -89,7 +91,7 @@ nel log `web_ready` oppure nella lista client del router, ad esempio
 
 La pagina offre:
 
-- **Test lettura**: acquisisce un campione SHT3x/VL53L0X e lo mostra nella
+- **Test lettura**: acquisisce un campione DS18B20/SHT3x/VL53L0X e lo mostra nella
   pagina senza salvarlo su LittleFS e senza inviarlo a InfluxDB;
 - **START/STOP**: avvia e termina la sessione direttamente dalla dashboard;
 - stato sessione, timestamp, IP, segnale Wi-Fi e uptime;
@@ -128,7 +130,7 @@ configurazione corrente, comprese le schede delle farine e i grammi calcolati.
 Modificare in seguito una farina o un preset non cambia quindi le sessioni gia'
 registrate.
 
-La pagina mostra separatamente lo stato di VL53L0X, SHT3x, LittleFS, coda e
+La pagina mostra separatamente lo stato di VL53L0X, SHT3x, DS18B20, LittleFS, coda e
 NTP. Se un sensore non e' disponibile, START restituisce il motivo preciso e il
 firmware tenta automaticamente una nuova inizializzazione ogni 15 secondi,
 senza richiedere un riavvio.
