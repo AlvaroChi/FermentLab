@@ -7,9 +7,27 @@
 
 namespace Config {
 
+#if defined(FERMENTLAB_BOARD_ESP32) && \
+    defined(FERMENTLAB_BOARD_S3_ZERO)
+#error "Select only one FermentLab board profile"
+#elif defined(FERMENTLAB_BOARD_ESP32)
+constexpr char BOARD_PROFILE[] = "ESP32_CLASSIC";
 constexpr uint8_t SDA_PIN = 21;
 constexpr uint8_t SCL_PIN = 22;
 constexpr uint8_t DS18B20_PIN = 27;
+#elif defined(FERMENTLAB_BOARD_S3_ZERO)
+constexpr char BOARD_PROFILE[] = "WAVESHARE_ESP32_S3_ZERO";
+constexpr uint8_t SDA_PIN = 1;
+constexpr uint8_t SCL_PIN = 2;
+constexpr uint8_t DS18B20_PIN = 4;
+#else
+#error "No FermentLab board profile selected by PlatformIO"
+#endif
+
+static_assert(SDA_PIN != SCL_PIN && SDA_PIN != DS18B20_PIN &&
+                  SCL_PIN != DS18B20_PIN,
+              "Sensor pins must be unique");
+
 constexpr uint8_t DS18B20_RESOLUTION_BITS = 12;
 constexpr uint32_t DS18B20_CONVERSION_MS = 750;
 // 100 kHz is intentionally conservative for breadboards and longer jumpers.

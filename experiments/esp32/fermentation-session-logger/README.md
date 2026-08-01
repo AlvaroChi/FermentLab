@@ -7,14 +7,18 @@ la perdita dell'arretrato.
 
 ## Hardware
 
-| Funzione | Collegamento ESP32 |
-|---|---|
-| SDA VL53L0X + SHT3x | GPIO21 |
-| SCL VL53L0X + SHT3x | GPIO22 |
-| Dati DS18B20 (temperatura impasto) | GPIO27, pull-up 4,7 kOhm verso 3V3 |
-| Alimentazione sensori | 3V3 - GND |
+| Funzione | ESP32 classico | Waveshare ESP32-S3-Zero |
+|---|---:|---:|
+| SDA VL53L0X + SHT3x | GPIO21 | GPIO1 |
+| SCL VL53L0X + SHT3x | GPIO22 | GPIO2 |
+| Dati DS18B20 | GPIO27 | GPIO4 |
+| Pull-up DS18B20 | 4,7 kOhm verso 3V3 | 4,7 kOhm verso 3V3 |
+| Alimentazione sensori | 3V3 - GND | 3V3 - GND |
 
-GPIO4 non viene configurato dal firmware e resta libero, senza pull-up interno.
+Il profilo hardware viene selezionato in compilazione. Sul profilo ESP32
+classico GPIO4 resta libero; sul profilo S3-Zero viene usato dal DS18B20.
+GPIO0 (BOOT), GPIO19/20 (USB) e GPIO21 (LED RGB) non vengono usati per i
+sensori sullo S3-Zero.
 
 ## Wi-Fi e InfluxDB
 
@@ -68,9 +72,10 @@ volume. InfluxDB usa timestamp con precisione in secondi.
 - temperatura e umidita' SHT3x protette da controllo CRC;
 - temperatura impasto DS18B20 a 12 bit, acquisita senza attese bloccanti.
 
-Il sensore SHT3x popola la temperatura ambiente; il DS18B20 su GPIO27 popola la
-temperatura impasto nel JSONL e in InfluxDB. La resistenza da 4,7 kOhm deve
-collegare il filo dati a 3V3. Per calcolare altezza e volume impostare in
+Il sensore SHT3x popola la temperatura ambiente; il DS18B20 sul GPIO definito
+dal profilo hardware popola la temperatura impasto nel JSONL e in InfluxDB. La
+resistenza da 4,7 kOhm deve collegare il filo dati a 3V3. Per calcolare altezza
+e volume impostare in
 `include/Config.h` `SENSOR_TO_CONTAINER_BOTTOM_MM` e
 `CONTAINER_CROSS_SECTION_CM2`; lasciati a zero, i due campi restano nulli.
 
@@ -149,12 +154,29 @@ mantiene l'arretrato anche se durante la prova Wi-Fi o NAS non sono disponibili.
 
 ## Compilazione e caricamento
 
-Aprire questa cartella direttamente in VS Code, poi usare PlatformIO Upload,
-oppure:
+Compilare esplicitamente entrambi i profili prima di modifiche condivise:
 
 ```powershell
-pio run --target upload --upload-port COM3
+pio run -e esp32dev
+pio run -e esp32s3zero
 ```
+
+Caricamento su ESP32 classico:
+
+```powershell
+pio run -e esp32dev --target upload --upload-port COM3
+```
+
+Caricamento su Waveshare ESP32-S3-Zero standard da 4 MB:
+
+```powershell
+pio run -e esp32s3zero --target upload
+```
+
+Lo S3-Zero usa USB nativa: se non entra automaticamente in download, tenere
+premuto BOOT (GPIO0), premere e rilasciare RESET, quindi rilasciare BOOT. La
+porta seriale puo' cambiare dopo il primo caricamento. Il modello N8R8 richiede
+un ambiente dedicato per la diversa dimensione della flash.
 
 ## Serial Monitor
 

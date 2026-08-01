@@ -1038,6 +1038,8 @@ String webStatusJson() {
   json.reserve(1152);
   json += F("{\"device_id\":\"");
   json += deviceId;
+  json += F("\",\"board_profile\":\"");
+  json += Config::BOARD_PROFILE;
   json += F("\",\"session_active\":");
   json += sessionActive ? F("true") : F("false");
   json += F(",\"session_id\":");
@@ -1299,6 +1301,8 @@ void setup() {
 
   Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"ready\",\"device_id\":\""));
   Serial.print(deviceId);
+  Serial.print(F("\",\"board_profile\":\""));
+  Serial.print(Config::BOARD_PROFILE);
   Serial.print(F("\",\"sda_gpio\":"));
   Serial.print(Config::SDA_PIN);
   Serial.print(F(",\"scl_gpio\":"));
