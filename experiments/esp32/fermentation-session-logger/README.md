@@ -1,8 +1,9 @@
 # Fermentation Session Logger
 
 Firmware ESP32 che avvia e chiude una sessione tramite un pulsante tra GPIO4
-e GND. Ogni misura viene emessa come JSON Line e salvata nella memoria interna
-LittleFS dell'ESP32.
+e GND. Ogni misura viene salvata localmente su LittleFS prima di essere inviata
+a InfluxDB 2.x; indisponibilita' temporanee di Wi-Fi, NAS o InfluxDB non causano
+la perdita dell'arretrato.
 
 ## Hardware
 
@@ -13,21 +14,62 @@ LittleFS dell'ESP32.
 | Pulsante attivo basso con pull-up interna | GPIO4 - GND |
 | Alimentazione sensori | 3V3 - GND |
 
-## Wi-Fi
+## Wi-Fi e InfluxDB
 
-Il file `include/Secrets.h` e' escluso da Git. Inserire localmente SSID e
-password usando `include/Secrets.example.h` come riferimento.
+Creare il file locale escluso da Git:
+
+```powershell
+Copy-Item include/secrets.example.h include/secrets.h
+```
+
+Compilare quindi `include/secrets.h` con SSID, password, URL del NAS, token,
+organization e bucket. La configurazione attesa e':
+
+```cpp
+#define INFLUXDB_URL "http://<IP_NAS>:8086"
+#define INFLUXDB_ORG "FermentLab"
+#define INFLUXDB_BUCKET "fermentlab"
+```
+
+Il token non viene stampato nei log. `include/secrets.h` e' ignorato da Git;
+nel repository rimane soltanto `include/secrets.example.h` con placeholder.
+
+## Coda persistente e recupero
+
+- le misure Influx Line Protocol vengono accodate in segmenti append-only in
+  `/influx-queue` su LittleFS;
+- ogni record viene terminato e sincronizzato prima che possa essere inviato;
+- la presenza nel segmento equivale allo stato `not sent`;
+- il segmento piu' vecchio viene inviato a `/api/v2/write` e cancellato solo
+  dopo una risposta HTTP 2xx;
+- timeout e backoff esponenziale evitano retry serrati;
+- dopo reboot vengono recuperate tutte le righe complete; un'eventuale coda
+  incompleta causata da un'interruzione di alimentazione non viene estesa;
+- un retry dopo un reset puo' reinviare un batch gia' accettato: stessi tag e
+  timestamp rendono la scrittura idempotente in InfluxDB.
+
+La misura `fermentation_measurement` usa i tag `device_id` e `session_id` e
+campi per sequenza, tempo trascorso, temperature, umidita', distanza, altezza e
+volume. InfluxDB usa timestamp con precisione in secondi.
 
 ## Funzionamento
 
-- prima pressione: connessione Wi-Fi, sincronizzazione NTP e avvio sessione;
+- connessione Wi-Fi, sincronizzazione NTP e recupero coda avvengono in
+  background con una macchina a stati non bloccante;
+- prima pressione: avvio sessione quando l'orologio e' gia' sincronizzato;
 - lettura immediata, poi ogni `TIMEINTERVAL` secondi;
 - seconda pressione: chiusura e rinomina del file nella memoria dell'ESP32;
 - dopo la chiusura stampa automaticamente l'intero JSONL nel Serial Monitor;
-- fuso `Europe/Berlin`, con passaggio automatico CET/CEST;
+- fuso `Europe/Rome`, con passaggio automatico CET/CEST;
 - ID hardware derivato dall'eFuse MAC dell'ESP32;
 - distanza filtrata con mediana di 7 letture e correzione validata 50-175 mm;
 - temperatura e umidita' SHT3x protette da controllo CRC.
+
+Il sensore SHT3x attuale popola la temperatura ambiente. Il campo temperatura
+impasto e' gia' previsto nello schema ma resta nullo finche' non viene collegato
+un sensore dedicato. Per calcolare altezza e volume impostare in
+`include/Config.h` `SENSOR_TO_CONTAINER_BOTTOM_MM` e
+`CONTAINER_CROSS_SECTION_CM2`; lasciati a zero, i due campi restano nulli.
 
 `TIMEINTERVAL` e' definito in `include/Config.h` e vale inizialmente 10 secondi.
 

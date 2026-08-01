@@ -9,7 +9,10 @@
 #include <time.h>
 
 #include "Config.h"
-#include "Secrets.h"
+#include "InfluxUploader.h"
+#include "PersistentQueue.h"
+#include "TelemetryRecord.h"
+#include "secrets.h"
 
 namespace {
 
@@ -36,6 +39,18 @@ char sessionStartTime[7] = {};
 char activeFilePath[128] = {};
 File sessionFile;
 bool storageReady = false;
+bool telemetryQueueReady = false;
+PersistentQueue telemetryQueue;
+InfluxUploader influxUploader;
+
+bool wifiAttemptInProgress = false;
+bool wifiWasConnected = false;
+bool ntpConfigured = false;
+bool ntpReadyReported = false;
+bool wifiCredentialsWarningEmitted = false;
+uint32_t wifiAttemptStartedMs = 0;
+uint32_t nextWifiAttemptMs = 0;
+uint32_t wifiRetryDelayMs = Config::WIFI_RETRY_INITIAL_MS;
 
 enum class DistanceInvalidReason : uint8_t {
   None,
@@ -327,51 +342,69 @@ void initializeDeviceId() {
 }
 
 bool wifiCredentialsAvailable() {
-  return std::strlen(Secrets::WIFI_SSID) > 0 &&
-         std::strcmp(Secrets::WIFI_SSID, "NOME_RETE_WIFI") != 0;
+  return std::strlen(WIFI_SSID) > 0 &&
+         std::strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0;
 }
 
-bool connectWifi() {
+void serviceConnectivity() {
   if (!wifiCredentialsAvailable()) {
-    emitEvent("error", "WIFI_CREDENTIALS_MISSING");
-    return false;
+    if (!wifiCredentialsWarningEmitted) {
+      emitEvent("error", "WIFI_CREDENTIALS_MISSING");
+      wifiCredentialsWarningEmitted = true;
+    }
+    return;
+  }
+
+  const uint32_t now = millis();
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiWasConnected) {
+      emitEvent("status", "WIFI_CONNECTED");
+      wifiWasConnected = true;
+      wifiAttemptInProgress = false;
+      wifiRetryDelayMs = Config::WIFI_RETRY_INITIAL_MS;
+      ntpConfigured = false;
+    }
+    if (!ntpConfigured) {
+      configTzTime(Config::TIMEZONE, Config::NTP_SERVER_1,
+                   Config::NTP_SERVER_2);
+      emitEvent("status", "NTP_SYNCHRONIZING");
+      ntpConfigured = true;
+    }
+    if (!ntpReadyReported && time(nullptr) >= Config::MIN_VALID_EPOCH) {
+      emitEvent("status", "NTP_SYNCHRONIZED");
+      ntpReadyReported = true;
+    }
+    return;
+  }
+
+  if (wifiWasConnected) {
+    emitEvent("error", "WIFI_DISCONNECTED");
+    wifiWasConnected = false;
+    wifiAttemptInProgress = false;
+    nextWifiAttemptMs = now;
+  }
+
+  if (wifiAttemptInProgress) {
+    if (now - wifiAttemptStartedMs < Config::WIFI_TIMEOUT_MS) {
+      return;
+    }
+    emitEvent("error", "WIFI_TIMEOUT");
+    WiFi.disconnect();
+    wifiAttemptInProgress = false;
+    nextWifiAttemptMs = now + wifiRetryDelayMs;
+    wifiRetryDelayMs = std::min(wifiRetryDelayMs * 2,
+                                Config::WIFI_RETRY_MAX_MS);
+    return;
+  }
+
+  if (static_cast<int32_t>(now - nextWifiAttemptMs) < 0) {
+    return;
   }
   WiFi.mode(WIFI_STA);
-  WiFi.begin(Secrets::WIFI_SSID, Secrets::WIFI_PASSWORD);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  wifiAttemptInProgress = true;
+  wifiAttemptStartedMs = now;
   emitEvent("status", "WIFI_CONNECTING");
-
-  const uint32_t startedAt = millis();
-  while (WiFi.status() != WL_CONNECTED &&
-         millis() - startedAt < Config::WIFI_TIMEOUT_MS) {
-    delay(100);
-  }
-  if (WiFi.status() != WL_CONNECTED) {
-    emitEvent("error", "WIFI_TIMEOUT");
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    return false;
-  }
-  emitEvent("status", "WIFI_CONNECTED");
-  return true;
-}
-
-bool synchronizeTime() {
-  setenv("TZ", Config::TIMEZONE, 1);
-  tzset();
-  configTime(0, 0, Config::NTP_SERVER_1, Config::NTP_SERVER_2);
-  emitEvent("status", "NTP_SYNCHRONIZING");
-
-  const uint32_t startedAt = millis();
-  while (time(nullptr) < Config::MIN_VALID_EPOCH &&
-         millis() - startedAt < Config::NTP_TIMEOUT_MS) {
-    delay(100);
-  }
-  if (time(nullptr) < Config::MIN_VALID_EPOCH) {
-    emitEvent("error", "NTP_TIMEOUT");
-    return false;
-  }
-  emitEvent("status", "NTP_SYNCHRONIZED");
-  return true;
 }
 
 bool formatLocalTime(time_t timestamp, char* iso, size_t isoSize,
@@ -414,7 +447,7 @@ void writeSessionStart(Print& output, time_t timestamp,
   output.print(isoTimestamp);
   output.print(F("\",\"epoch_s\":"));
   output.print(static_cast<unsigned long>(timestamp));
-  output.print(F(",\"timezone\":\"Europe/Berlin\",\"interval_s\":"));
+  output.print(F(",\"timezone\":\"Europe/Rome\",\"interval_s\":"));
   output.print(TIMEINTERVAL);
   output.println(F("}"));
 }
@@ -439,6 +472,8 @@ void emitMeasurement() {
 
   float correctedDistanceMm = NAN;
   float growthMm = NAN;
+  float doughHeightMm = NAN;
+  float volumeMl = NAN;
   const char* distanceStatus = "INSUFFICIENT_READINGS";
   if (!distanceSensorReady) {
     distanceStatus = "VL53L0X_NOT_READY";
@@ -460,6 +495,15 @@ void emitMeasurement() {
         distanceStatus = "OK";
       }
       growthMm = baselineDistanceMm - correctedDistanceMm;
+      if (Config::SENSOR_TO_CONTAINER_BOTTOM_MM > 0.0f) {
+        doughHeightMm =
+            Config::SENSOR_TO_CONTAINER_BOTTOM_MM - correctedDistanceMm;
+      }
+      if (!isnan(doughHeightMm) && doughHeightMm >= 0.0f &&
+          Config::CONTAINER_CROSS_SECTION_CM2 > 0.0f) {
+        volumeMl =
+            Config::CONTAINER_CROSS_SECTION_CM2 * doughHeightMm / 10.0f;
+      }
     }
   }
 
@@ -480,6 +524,8 @@ void emitMeasurement() {
     output.print(elapsedMs);
     output.print(F(",\"ambient_temperature_c\":"));
     printJsonFloat(output, ambient.temperatureC);
+    output.print(F(",\"dough_temperature_c\":"));
+    printJsonFloat(output, NAN);
     output.print(F(",\"ambient_humidity_pct\":"));
     printJsonFloat(output, ambient.humidityPercent);
     output.print(F(",\"ambient_status\":\""));
@@ -500,6 +546,10 @@ void emitMeasurement() {
     printJsonFloat(output, correctedDistanceMm);
     output.print(F(",\"growth_mm\":"));
     printJsonFloat(output, growthMm);
+    output.print(F(",\"dough_height_mm\":"));
+    printJsonFloat(output, doughHeightMm);
+    output.print(F(",\"volume_ml\":"));
+    printJsonFloat(output, volumeMl);
     output.print(F(",\"distance_status\":\""));
     output.print(distanceStatus);
     output.println(F("\"}"));
@@ -508,6 +558,22 @@ void emitMeasurement() {
   writeMeasurement(Serial);
   writeMeasurement(sessionFile);
   sessionFile.flush();
+
+  TelemetryRecord record;
+  record.deviceId = deviceId;
+  record.sessionId = sessionId;
+  record.sequence = currentSequence;
+  record.timestamp = timestamp;
+  record.elapsedMs = elapsedMs;
+  record.ambientTemperatureC = ambient.temperatureC;
+  record.humidityPercent = ambient.humidityPercent;
+  record.distanceMm = correctedDistanceMm;
+  record.doughHeightMm = doughHeightMm;
+  record.volumeMl = volumeMl;
+  if (!telemetryQueueReady ||
+      !telemetryQueue.enqueue(toInfluxLineProtocol(record))) {
+    emitEvent("error", "TELEMETRY_QUEUE_WRITE_FAILED");
+  }
 }
 
 void dumpSavedFile(const char* path, const char* filename) {
@@ -548,14 +614,8 @@ void startSession() {
     emitEvent("error", "SESSION_REJECTED_SENSOR_NOT_READY");
     return;
   }
-  if (!connectWifi()) {
+  if (time(nullptr) < Config::MIN_VALID_EPOCH) {
     emitEvent("error", "SESSION_REJECTED_TIME_UNAVAILABLE");
-    return;
-  }
-  if (!synchronizeTime()) {
-    emitEvent("error", "SESSION_REJECTED_TIME_UNAVAILABLE");
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
     return;
   }
 
@@ -572,10 +632,6 @@ void startSession() {
            sessionStartTime, deviceId);
   snprintf(activeFilePath, sizeof(activeFilePath), "/%s.partial.jsonl",
            sessionId);
-  if (LittleFS.exists(activeFilePath)) {
-    emitEvent("error", "SESSION_FILE_ALREADY_EXISTS");
-    return;
-  }
   sessionFile = LittleFS.open(activeFilePath, FILE_WRITE);
   if (!sessionFile) {
     emitEvent("error", "SESSION_FILE_OPEN_FAILED");
@@ -645,9 +701,6 @@ void stopSession() {
     Serial.println(F("}"));
     dumpSavedFile(finalPath, filename);
   }
-
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
 }
 
 void toggleSession() {
@@ -683,6 +736,15 @@ void setup() {
   storageReady = LittleFS.begin(true);
   emitEvent(storageReady ? "status" : "error",
             storageReady ? "LITTLEFS_READY" : "LITTLEFS_MOUNT_FAILED");
+  if (storageReady) {
+    telemetryQueueReady = telemetryQueue.begin(LittleFS);
+    if (telemetryQueueReady) {
+      influxUploader.begin(telemetryQueue);
+    }
+    emitEvent(telemetryQueueReady ? "status" : "error",
+              telemetryQueueReady ? "TELEMETRY_QUEUE_READY"
+                                  : "TELEMETRY_QUEUE_FAILED");
+  }
   pinMode(Config::BUTTON_PIN, INPUT_PULLUP);
   buttonRawState = digitalRead(Config::BUTTON_PIN);
   buttonStableState = buttonRawState;
@@ -714,11 +776,23 @@ void setup() {
 
 void loop() {
   pollButton();
+  serviceConnectivity();
 
   if (sessionActive &&
       millis() - lastReadingMs >= Config::READING_INTERVAL_MS) {
     emitMeasurement();
     lastReadingMs = millis();
+  }
+
+  if (telemetryQueueReady) {
+    const InfluxUploadEvent uploadEvent = influxUploader.tick();
+    if (uploadEvent == InfluxUploadEvent::Sent) {
+      emitEvent("status", "INFLUX_BATCH_SENT");
+    } else if (uploadEvent == InfluxUploadEvent::Failed) {
+      emitEvent("error", "INFLUX_SEND_FAILED");
+    } else if (uploadEvent == InfluxUploadEvent::ConfigurationMissing) {
+      emitEvent("error", "INFLUX_CONFIGURATION_MISSING");
+    }
   }
   delay(2);
 }
