@@ -9,8 +9,6 @@ namespace Config {
 
 constexpr uint8_t SDA_PIN = 21;
 constexpr uint8_t SCL_PIN = 22;
-constexpr uint8_t BUTTON_PIN = 4;
-constexpr uint32_t BUTTON_DEBOUNCE_MS = 50;
 // 100 kHz is intentionally conservative for breadboards and longer jumpers.
 constexpr uint32_t I2C_FREQUENCY_HZ = 100000;
 constexpr uint16_t I2C_TRANSACTION_TIMEOUT_MS = 10;

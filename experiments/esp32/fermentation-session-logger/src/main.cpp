@@ -32,10 +32,6 @@ uint32_t lastReadingMs = 0;
 uint32_t sequenceNumber = 0;
 time_t lastMeasurementTimestamp = 0;
 
-int buttonRawState = HIGH;
-int buttonStableState = HIGH;
-uint32_t buttonLastChangeMs = 0;
-
 char deviceId[32] = {};
 char sessionId[64] = {};
 char sessionStartDate[9] = {};
@@ -1122,21 +1118,6 @@ String importConfigFromWeb(const String& body) {
                        : sessionConfigStore.importBackup(body);
 }
 
-void pollButton() {
-  const int currentRawState = digitalRead(Config::BUTTON_PIN);
-  if (currentRawState != buttonRawState) {
-    buttonRawState = currentRawState;
-    buttonLastChangeMs = millis();
-  }
-  if (buttonRawState != buttonStableState &&
-      millis() - buttonLastChangeMs >= Config::BUTTON_DEBOUNCE_MS) {
-    buttonStableState = buttonRawState;
-    if (buttonStableState == LOW) {
-      toggleSession();
-    }
-  }
-}
-
 }  // namespace
 
 void setup() {
@@ -1160,11 +1141,6 @@ void setup() {
               telemetryQueueReady ? "TELEMETRY_QUEUE_READY"
                                   : "TELEMETRY_QUEUE_FAILED");
   }
-  pinMode(Config::BUTTON_PIN, INPUT_PULLUP);
-  buttonRawState = digitalRead(Config::BUTTON_PIN);
-  buttonStableState = buttonRawState;
-  buttonLastChangeMs = millis();
-
   setenv("TZ", Config::TIMEZONE, 1);
   tzset();
 
@@ -1188,9 +1164,7 @@ void setup() {
 
   Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"ready\",\"device_id\":\""));
   Serial.print(deviceId);
-  Serial.print(F("\",\"button_gpio\":"));
-  Serial.print(Config::BUTTON_PIN);
-  Serial.print(F(",\"sda_gpio\":"));
+  Serial.print(F("\",\"sda_gpio\":"));
   Serial.print(Config::SDA_PIN);
   Serial.print(F(",\"scl_gpio\":"));
   Serial.print(Config::SCL_PIN);
@@ -1200,7 +1174,6 @@ void setup() {
 }
 
 void loop() {
-  pollButton();
   serviceConnectivity();
   serviceSensorRecovery();
   webInterface.tick();

@@ -1,7 +1,7 @@
 # Fermentation Session Logger
 
-Firmware ESP32 che avvia e chiude una sessione tramite un pulsante tra GPIO4
-e GND. Ogni misura viene salvata localmente su LittleFS prima di essere inviata
+Firmware ESP32 che avvia e chiude sessioni dall'interfaccia web locale. Ogni
+misura viene salvata localmente su LittleFS prima di essere inviata
 a InfluxDB 2.x; indisponibilita' temporanee di Wi-Fi, NAS o InfluxDB non causano
 la perdita dell'arretrato.
 
@@ -11,8 +11,9 @@ la perdita dell'arretrato.
 |---|---|
 | SDA VL53L0X + SHT3x | GPIO21 |
 | SCL VL53L0X + SHT3x | GPIO22 |
-| Pulsante attivo basso con pull-up interna | GPIO4 - GND |
 | Alimentazione sensori | 3V3 - GND |
+
+GPIO4 non viene configurato dal firmware e resta libero, senza pull-up interno.
 
 ## Wi-Fi e InfluxDB
 
@@ -56,9 +57,9 @@ volume. InfluxDB usa timestamp con precisione in secondi.
 
 - connessione Wi-Fi, sincronizzazione NTP e recupero coda avvengono in
   background con una macchina a stati non bloccante;
-- prima pressione: avvio sessione quando l'orologio e' gia' sincronizzato;
+- **START** dalla dashboard: avvio sessione quando l'orologio e' gia' sincronizzato;
 - lettura immediata, poi ogni `TIMEINTERVAL` secondi;
-- seconda pressione: chiusura e rinomina del file nella memoria dell'ESP32;
+- **STOP** dalla dashboard: chiusura e rinomina del file nella memoria dell'ESP32;
 - dopo la chiusura stampa automaticamente l'intero JSONL nel Serial Monitor;
 - fuso `Europe/Rome`, con passaggio automatico CET/CEST;
 - ID hardware derivato dall'eFuse MAC dell'ESP32;
@@ -90,7 +91,7 @@ La pagina offre:
 
 - **Test lettura**: acquisisce un campione SHT3x/VL53L0X e lo mostra nella
   pagina senza salvarlo su LittleFS e senza inviarlo a InfluxDB;
-- **START/STOP**: richiama la stessa funzione del pulsante fisico GPIO4;
+- **START/STOP**: avvia e termina la sessione direttamente dalla dashboard;
 - stato sessione, timestamp, IP, segnale Wi-Fi e uptime;
 - intervallo previsto, letture effettuate, tempo alla prossima lettura e ultima
   misura;
@@ -156,7 +157,7 @@ pio run --target upload --upload-port COM3
 ## Serial Monitor
 
 Il normale Serial Monitor di PlatformIO mostra le misure durante la sessione.
-Alla seconda pressione stampa `file_saved`, seguito dal contenuto completo del
+Alla chiusura della sessione stampa `file_saved`, seguito dal contenuto completo del
 file tra `file_dump_start` e `file_dump_end`.
 
 ## Acquisizione opzionale sul PC
