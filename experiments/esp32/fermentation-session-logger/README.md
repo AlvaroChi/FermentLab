@@ -73,6 +73,39 @@ un sensore dedicato. Per calcolare altezza e volume impostare in
 
 `TIMEINTERVAL` e' definito in `include/Config.h` e vale inizialmente 10 secondi.
 
+## Interfaccia web locale
+
+Quando il Wi-Fi e' connesso, l'ESP32 espone una pagina di controllo sulla rete
+locale:
+
+```text
+http://fermentlab.local
+```
+
+Se il telefono o il router non risolvono mDNS, usare l'indirizzo IP mostrato
+nel log `web_ready` oppure nella lista client del router, ad esempio
+`http://192.168.68.x`.
+
+La pagina offre:
+
+- **Test lettura**: acquisisce un campione SHT3x/VL53L0X e lo mostra nella
+  pagina senza salvarlo su LittleFS e senza inviarlo a InfluxDB;
+- **START/STOP**: richiama la stessa funzione del pulsante fisico GPIO4;
+- stato sessione, timestamp, IP, segnale Wi-Fi, uptime e dimensione della coda
+  InfluxDB persistente.
+
+L'interfaccia non richiede Internet, ma telefono ed ESP32 devono essere sulla
+stessa rete locale. Non e' presente autenticazione: non pubblicare la porta 80
+del dispositivo su Internet e usare una rete Wi-Fi considerata affidabile.
+
+## Alimentazione senza PC
+
+L'ESP32 puo' funzionare dalla porta USB con un normale alimentatore da telefono
+5 V / 2 A. I 2 A indicano la corrente massima disponibile: la scheda assorbe
+solo quella necessaria. Usare un cavo USB affidabile e verificare dalla pagina
+che uptime, letture e invii continuino senza riavvii. Il buffer LittleFS
+mantiene l'arretrato anche se durante la prova Wi-Fi o NAS non sono disponibili.
+
 ## Compilazione e caricamento
 
 Aprire questa cartella direttamente in VS Code, poi usare PlatformIO Upload,

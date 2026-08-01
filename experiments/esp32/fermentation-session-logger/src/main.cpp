@@ -12,6 +12,7 @@
 #include "InfluxUploader.h"
 #include "PersistentQueue.h"
 #include "TelemetryRecord.h"
+#include "WebInterface.h"
 #include "secrets.h"
 
 namespace {
@@ -42,6 +43,7 @@ bool storageReady = false;
 bool telemetryQueueReady = false;
 PersistentQueue telemetryQueue;
 InfluxUploader influxUploader;
+WebInterface webInterface;
 
 bool wifiAttemptInProgress = false;
 bool wifiWasConnected = false;
@@ -348,6 +350,7 @@ bool wifiCredentialsAvailable() {
 
 void serviceConnectivity() {
   if (!wifiCredentialsAvailable()) {
+    webInterface.stop();
     if (!wifiCredentialsWarningEmitted) {
       emitEvent("error", "WIFI_CREDENTIALS_MISSING");
       wifiCredentialsWarningEmitted = true;
@@ -363,6 +366,20 @@ void serviceConnectivity() {
       wifiAttemptInProgress = false;
       wifiRetryDelayMs = Config::WIFI_RETRY_INITIAL_MS;
       ntpConfigured = false;
+    }
+    if (!webInterface.running()) {
+      const bool mdnsReady = webInterface.begin();
+      emitEvent("status", "WEB_INTERFACE_READY");
+      if (!mdnsReady) {
+        emitEvent("error", "MDNS_START_FAILED");
+      }
+      Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"web_ready\",\"device_id\":\""));
+      Serial.print(deviceId);
+      Serial.print(F("\",\"url\":\"http://"));
+      Serial.print(WiFi.localIP());
+      Serial.print(F("\",\"mdns_url\":\"http://"));
+      Serial.print(Config::WEB_HOSTNAME);
+      Serial.println(F(".local\"}"));
     }
     if (!ntpConfigured) {
       configTzTime(Config::TIMEZONE, Config::NTP_SERVER_1,
@@ -383,6 +400,7 @@ void serviceConnectivity() {
     wifiAttemptInProgress = false;
     nextWifiAttemptMs = now;
   }
+  webInterface.stop();
 
   if (wifiAttemptInProgress) {
     if (now - wifiAttemptStartedMs < Config::WIFI_TIMEOUT_MS) {
@@ -401,6 +419,7 @@ void serviceConnectivity() {
     return;
   }
   WiFi.mode(WIFI_STA);
+  WiFi.setHostname(Config::WEB_HOSTNAME);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   wifiAttemptInProgress = true;
   wifiAttemptStartedMs = now;
@@ -711,6 +730,115 @@ void toggleSession() {
   }
 }
 
+String jsonFloatValue(float value, uint8_t decimals = 3) {
+  return isnan(value) || isinf(value) ? String("null")
+                                      : String(value,
+                                               static_cast<unsigned int>(decimals));
+}
+
+String webStatusJson() {
+  const time_t timestamp = time(nullptr);
+  char isoTimestamp[40] = {};
+  const bool timeValid =
+      timestamp >= Config::MIN_VALID_EPOCH &&
+      formatLocalTime(timestamp, isoTimestamp, sizeof(isoTimestamp));
+
+  String json;
+  json.reserve(448);
+  json += F("{\"device_id\":\"");
+  json += deviceId;
+  json += F("\",\"session_active\":");
+  json += sessionActive ? F("true") : F("false");
+  json += F(",\"session_id\":");
+  if (sessionActive) {
+    json += '"';
+    json += sessionId;
+    json += '"';
+  } else {
+    json += F("null");
+  }
+  json += F(",\"timestamp\":");
+  if (timeValid) {
+    json += '"';
+    json += isoTimestamp;
+    json += '"';
+  } else {
+    json += F("null");
+  }
+  json += F(",\"time_valid\":");
+  json += timeValid ? F("true") : F("false");
+  json += F(",\"ip\":\"");
+  json += WiFi.localIP().toString();
+  json += F("\",\"rssi_dbm\":");
+  json += String(WiFi.RSSI());
+  json += F(",\"uptime_s\":");
+  json += String(millis() / 1000UL);
+  json += F(",\"queue_segments\":");
+  json += String(telemetryQueueReady ? telemetryQueue.segmentCount() : 0);
+  json += F(",\"queue_bytes\":");
+  json += String(telemetryQueueReady ? telemetryQueue.pendingBytes() : 0);
+  json += '}';
+  return json;
+}
+
+String webTestJson() {
+  const time_t timestamp = time(nullptr);
+  char isoTimestamp[40] = {};
+  const bool timeValid =
+      timestamp >= Config::MIN_VALID_EPOCH &&
+      formatLocalTime(timestamp, isoTimestamp, sizeof(isoTimestamp));
+  const AmbientReading ambient = readAmbientMeasurement();
+  const FilteredDistance distance = acquireFilteredDistance();
+
+  float correctedDistanceMm = NAN;
+  const char* distanceStatus = "INSUFFICIENT_READINGS";
+  if (!distanceSensorReady) {
+    distanceStatus = "VL53L0X_NOT_READY";
+  } else if (distance.available()) {
+    correctedDistanceMm =
+        (static_cast<float>(distance.median) -
+         Config::CALIBRATION_INTERCEPT_MM) /
+        Config::CALIBRATION_SLOPE;
+    if (correctedDistanceMm < Config::CALIBRATED_MIN_MM ||
+        correctedDistanceMm > Config::CALIBRATED_MAX_MM) {
+      correctedDistanceMm = NAN;
+      distanceStatus = "OUTSIDE_CALIBRATED_RANGE";
+    } else {
+      distanceStatus = "OK";
+    }
+  }
+
+  String json;
+  json.reserve(416);
+  json += F("{\"timestamp\":");
+  if (timeValid) {
+    json += '"';
+    json += isoTimestamp;
+    json += '"';
+  } else {
+    json += F("null");
+  }
+  json += F(",\"ambient_temperature_c\":");
+  json += jsonFloatValue(ambient.temperatureC);
+  json += F(",\"humidity_pct\":");
+  json += jsonFloatValue(ambient.humidityPercent);
+  json += F(",\"ambient_status\":\"");
+  json += ambientStatusText(ambient.status);
+  json += F("\",\"distance_raw_median_mm\":");
+  json += distance.available() ? String(distance.median) : String("null");
+  json += F(",\"distance_corrected_mm\":");
+  json += jsonFloatValue(correctedDistanceMm);
+  json += F(",\"distance_status\":\"");
+  json += distanceStatus;
+  json += F("\"}");
+  return json;
+}
+
+String toggleSessionFromWeb() {
+  toggleSession();
+  return webStatusJson();
+}
+
 void pollButton() {
   const int currentRawState = digitalRead(Config::BUTTON_PIN);
   if (currentRawState != buttonRawState) {
@@ -761,6 +889,8 @@ void setup() {
   warmUpDistanceSensor();
   ambientSensorReady = initializeAmbientSensor();
 
+  webInterface.configure(webStatusJson, webTestJson, toggleSessionFromWeb);
+
   Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"ready\",\"device_id\":\""));
   Serial.print(deviceId);
   Serial.print(F("\",\"button_gpio\":"));
@@ -777,6 +907,7 @@ void setup() {
 void loop() {
   pollButton();
   serviceConnectivity();
+  webInterface.tick();
 
   if (sessionActive &&
       millis() - lastReadingMs >= Config::READING_INTERVAL_MS) {
