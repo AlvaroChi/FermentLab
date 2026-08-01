@@ -58,6 +58,15 @@ constexpr uint32_t INFLUX_RETRY_INITIAL_MS = 5000;
 constexpr uint32_t INFLUX_RETRY_MAX_MS = 5 * 60 * 1000UL;
 constexpr uint32_t INFLUX_SUCCESS_PAUSE_MS = 250;
 
+// Recipe data is changed only from the local configuration page. Each file is
+// replaced atomically so a power loss cannot leave the only copy truncated.
+constexpr char RECIPE_CONFIG_DIRECTORY[] = "/recipe-config";
+constexpr char FLOURS_FILE[] = "/recipe-config/flours.json";
+constexpr char PRESETS_FILE[] = "/recipe-config/presets.json";
+constexpr char SESSION_DRAFT_FILE[] = "/recipe-config/session-draft.json";
+constexpr size_t CONFIG_DOCUMENT_MAX_BYTES = 32 * 1024;
+constexpr size_t CONFIG_BACKUP_MAX_BYTES = 64 * 1024;
+
 constexpr uint16_t WEB_SERVER_PORT = 80;
 constexpr char WEB_HOSTNAME[] = "fermentlab";
 

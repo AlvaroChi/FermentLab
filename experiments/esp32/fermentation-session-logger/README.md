@@ -97,6 +97,36 @@ La pagina offre:
 - numero reale di letture in coda, segmenti e byte della coda InfluxDB
   persistente.
 
+### Impasto, farine e preset
+
+La pagina separata `http://fermentlab.local/config` (raggiungibile anche dal
+pulsante **Impasto e farine** nella dashboard) permette di gestire senza editor
+JSON:
+
+- il catalogo personale delle farine, con marca, nome, tipo, proteine, W, P/L,
+  note e fonte;
+- preset riutilizzabili con una o piu' farine, percentuali della miscela,
+  idratazione, sale, lievito e autolisi;
+- la configurazione del prossimo impasto, anche partendo da un preset;
+- esportazione e importazione di un backup JSON completo.
+
+Al primo avvio vengono aggiunte Caputo Pizzeria e Caputo Nuvola con i dati
+delle schede ufficiali. Italiamo Nuvola viene aggiunta con marca e nome, ma i
+dati tecnici restano volutamente vuoti finche' non vengono copiati
+dall'etichetta della confezione. I due preset inclusi sono esempi modificabili,
+non ricette universali.
+
+I documenti sono salvati in `/recipe-config` su LittleFS. Ogni modifica usa un
+file temporaneo e una copia di recupero; catalogo e preset non vengono riscritti
+durante le normali misurazioni. Gli ID e i riferimenti tra farine, preset e
+impasto vengono validati prima della sostituzione. Durante una sessione attiva
+l'interfaccia e le API rifiutano qualsiasi modifica.
+
+Allo START la prima riga del JSONL include `recipe`: e' una fotografia della
+configurazione corrente, comprese le schede delle farine e i grammi calcolati.
+Modificare in seguito una farina o un preset non cambia quindi le sessioni gia'
+registrate.
+
 La pagina mostra separatamente lo stato di VL53L0X, SHT3x, LittleFS, coda e
 NTP. Se un sensore non e' disponibile, START restituisce il motivo preciso e il
 firmware tenta automaticamente una nuova inizializzazione ogni 15 secondi,

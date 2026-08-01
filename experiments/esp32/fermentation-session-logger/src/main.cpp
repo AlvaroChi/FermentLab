@@ -11,6 +11,7 @@
 #include "Config.h"
 #include "InfluxUploader.h"
 #include "PersistentQueue.h"
+#include "SessionConfigStore.h"
 #include "TelemetryRecord.h"
 #include "WebInterface.h"
 #include "secrets.h"
@@ -45,6 +46,8 @@ bool telemetryQueueReady = false;
 PersistentQueue telemetryQueue;
 InfluxUploader influxUploader;
 WebInterface webInterface;
+SessionConfigStore sessionConfigStore;
+bool recipeConfigReady = false;
 
 bool wifiAttemptInProgress = false;
 bool wifiWasConnected = false;
@@ -495,6 +498,10 @@ void writeSessionStart(Print& output, time_t timestamp,
   output.print(static_cast<unsigned long>(timestamp));
   output.print(F(",\"timezone\":\"Europe/Rome\",\"interval_s\":"));
   output.print(TIMEINTERVAL);
+  output.print(F(",\"recipe\":"));
+  if (!sessionConfigStore.writeRecipeSnapshot(output)) {
+    output.print(F("null"));
+  }
   output.println(F("}"));
 }
 
@@ -661,6 +668,11 @@ void startSession() {
     emitEvent("error", "SESSION_REJECTED_SENSOR_NOT_READY");
     return;
   }
+  String recipeError;
+  if (!recipeConfigReady || !sessionConfigStore.draftValid(&recipeError)) {
+    emitEvent("error", "SESSION_REJECTED_RECIPE_NOT_READY");
+    return;
+  }
   if (time(nullptr) < Config::MIN_VALID_EPOCH) {
     emitEvent("error", "SESSION_REJECTED_TIME_UNAVAILABLE");
     return;
@@ -764,6 +776,20 @@ String jsonFloatValue(float value, uint8_t decimals = 3) {
                                                static_cast<unsigned int>(decimals));
 }
 
+void appendJsonString(String& output, const String& value) {
+  output += '"';
+  for (size_t index = 0; index < value.length(); ++index) {
+    const char c = value[index];
+    if (c == '"' || c == '\\') output += '\\';
+    if (c == '\n' || c == '\r') {
+      output += ' ';
+    } else {
+      output += c;
+    }
+  }
+  output += '"';
+}
+
 String webStatusJson() {
   const time_t timestamp = time(nullptr);
   char isoTimestamp[40] = {};
@@ -786,7 +812,7 @@ String webStatusJson() {
   }
 
   String json;
-  json.reserve(768);
+  json.reserve(1152);
   json += F("{\"device_id\":\"");
   json += deviceId;
   json += F("\",\"session_active\":");
@@ -817,6 +843,8 @@ String webStatusJson() {
   json += distanceSensorReady ? F("true") : F("false");
   json += F(",\"ambient_sensor_ready\":");
   json += ambientSensorReady ? F("true") : F("false");
+  json += F(",\"recipe_config_ready\":");
+  json += recipeConfigReady ? F("true") : F("false");
   json += F(",\"start_blocker\":");
   if (sessionActive) {
     json += F("null");
@@ -826,10 +854,17 @@ String webStatusJson() {
     json += F("\"Sensore VL53L0X non disponibile; nuovo tentativo automatico entro 15 secondi.\"");
   } else if (!ambientSensorReady) {
     json += F("\"Sensore SHT3x non disponibile; nuovo tentativo automatico entro 15 secondi.\"");
-  } else if (!timeValid) {
-    json += F("\"Orologio non sincronizzato; attendere NTP.\"");
+  } else if (!recipeConfigReady) {
+    json += F("\"Configurazione impasto non disponibile in LittleFS.\"");
   } else {
-    json += F("null");
+    String recipeError;
+    if (!sessionConfigStore.draftValid(&recipeError)) {
+      appendJsonString(json, String("Prossimo impasto non valido: ") + recipeError);
+    } else if (!timeValid) {
+      json += F("\"Orologio non sincronizzato; attendere NTP.\"");
+    } else {
+      json += F("null");
+    }
   }
   json += F(",\"ip\":\"");
   json += WiFi.localIP().toString();
@@ -857,6 +892,22 @@ String webStatusJson() {
   json += String(telemetryQueueReady ? telemetryQueue.segmentCount() : 0);
   json += F(",\"queue_bytes\":");
   json += String(telemetryQueueReady ? telemetryQueue.pendingBytes() : 0);
+  json += F(",\"draft_name\":");
+  if (recipeConfigReady) {
+    appendJsonString(json, sessionConfigStore.draftName());
+  } else {
+    json += F("null");
+  }
+  json += F(",\"draft_flours\":");
+  if (recipeConfigReady) {
+    appendJsonString(json, sessionConfigStore.draftFlourSummary());
+  } else {
+    json += F("null");
+  }
+  json += F(",\"draft_hydration_pct\":");
+  json += recipeConfigReady
+              ? jsonFloatValue(sessionConfigStore.draftHydrationPercent(), 1)
+              : String("null");
   json += '}';
   return json;
 }
@@ -919,6 +970,30 @@ String toggleSessionFromWeb() {
   return webStatusJson();
 }
 
+String configurationLockedJson() {
+  return F("{\"ok\":false,\"message\":\"Configurazione bloccata durante una sessione attiva.\"}");
+}
+
+String saveFloursFromWeb(const String& body) {
+  return sessionActive ? configurationLockedJson()
+                       : sessionConfigStore.saveFlours(body);
+}
+
+String savePresetsFromWeb(const String& body) {
+  return sessionActive ? configurationLockedJson()
+                       : sessionConfigStore.savePresets(body);
+}
+
+String saveDraftFromWeb(const String& body) {
+  return sessionActive ? configurationLockedJson()
+                       : sessionConfigStore.saveDraft(body);
+}
+
+String importConfigFromWeb(const String& body) {
+  return sessionActive ? configurationLockedJson()
+                       : sessionConfigStore.importBackup(body);
+}
+
 void pollButton() {
   const int currentRawState = digitalRead(Config::BUTTON_PIN);
   if (currentRawState != buttonRawState) {
@@ -941,10 +1016,14 @@ void setup() {
   delay(500);
 
   initializeDeviceId();
-  storageReady = LittleFS.begin(true);
+  storageReady = LittleFS.begin(false);
   emitEvent(storageReady ? "status" : "error",
             storageReady ? "LITTLEFS_READY" : "LITTLEFS_MOUNT_FAILED");
   if (storageReady) {
+    recipeConfigReady = sessionConfigStore.begin(LittleFS);
+    emitEvent(recipeConfigReady ? "status" : "error",
+              recipeConfigReady ? "RECIPE_CONFIG_READY"
+                                : "RECIPE_CONFIG_FAILED");
     telemetryQueueReady = telemetryQueue.begin(LittleFS);
     if (telemetryQueueReady) {
       influxUploader.begin(telemetryQueue);
@@ -971,6 +1050,11 @@ void setup() {
   lastSensorRetryMs = millis();
 
   webInterface.configure(webStatusJson, webTestJson, toggleSessionFromWeb);
+  webInterface.configureRecipes(
+      []() { return sessionConfigStore.floursJson(); }, saveFloursFromWeb,
+      []() { return sessionConfigStore.presetsJson(); }, savePresetsFromWeb,
+      []() { return sessionConfigStore.draftJson(); }, saveDraftFromWeb,
+      []() { return sessionConfigStore.backupJson(); }, importConfigFromWeb);
 
   Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"ready\",\"device_id\":\""));
   Serial.print(deviceId);
