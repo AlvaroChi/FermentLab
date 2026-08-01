@@ -35,8 +35,9 @@ class SessionConfigStore {
                        const String* catalogOverride = nullptr) const;
   bool validateDraft(const String& content, String& error,
                      const String* catalogOverride = nullptr) const;
-  bool flourExists(const String& flourId,
-                   const String* catalogOverride = nullptr) const;
+  bool validateDraftPresetReference(const String& draftContent,
+                                    const String& presetsContent,
+                                    String& error) const;
   String resultJson(bool ok, const String& message) const;
 
   fs::FS* filesystem_ = nullptr;

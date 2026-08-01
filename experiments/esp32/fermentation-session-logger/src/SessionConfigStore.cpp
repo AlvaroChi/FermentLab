@@ -132,6 +132,80 @@ bool validId(const char* value) {
   return true;
 }
 
+String normalizeId(const String& value) {
+  String output;
+  output.reserve(48);
+  bool previousWasDash = false;
+  const auto appendLetterOrNumber = [&](char character) {
+    if (output.length() >= 48) return;
+    output += character;
+    previousWasDash = false;
+  };
+  const auto appendSeparator = [&]() {
+    if (!previousWasDash && output.length() > 0 && output.length() < 48) {
+      output += '-';
+      previousWasDash = true;
+    }
+  };
+
+  for (size_t index = 0; index < value.length(); ++index) {
+    const unsigned char raw = static_cast<unsigned char>(value[index]);
+    if (raw >= 'A' && raw <= 'Z') {
+      appendLetterOrNumber(static_cast<char>(raw - 'A' + 'a'));
+    } else if ((raw >= 'a' && raw <= 'z') || (raw >= '0' && raw <= '9')) {
+      appendLetterOrNumber(static_cast<char>(raw));
+    } else if (raw == 0xC3 && index + 1 < value.length()) {
+      // Fold the Latin-1 characters most likely to occur in Italian and
+      // European flour/recipe names. Arduino String stores UTF-8 bytes, so
+      // handling the two-byte sequence explicitly keeps IDs deterministic.
+      const unsigned char continuation =
+          static_cast<unsigned char>(value[++index]);
+      char folded = '\0';
+      if ((continuation >= 0x80 && continuation <= 0x85) ||
+          (continuation >= 0xA0 && continuation <= 0xA5)) {
+        folded = 'a';
+      } else if (continuation == 0x87 || continuation == 0xA7) {
+        folded = 'c';
+      } else if ((continuation >= 0x88 && continuation <= 0x8B) ||
+                 (continuation >= 0xA8 && continuation <= 0xAB)) {
+        folded = 'e';
+      } else if ((continuation >= 0x8C && continuation <= 0x8F) ||
+                 (continuation >= 0xAC && continuation <= 0xAF)) {
+        folded = 'i';
+      } else if (continuation == 0x91 || continuation == 0xB1) {
+        folded = 'n';
+      } else if ((continuation >= 0x92 && continuation <= 0x96) ||
+                 (continuation >= 0xB2 && continuation <= 0xB6)) {
+        folded = 'o';
+      } else if ((continuation >= 0x99 && continuation <= 0x9C) ||
+                 (continuation >= 0xB9 && continuation <= 0xBC)) {
+        folded = 'u';
+      } else if (continuation == 0x9D || continuation == 0xBD ||
+                 continuation == 0xBF) {
+        folded = 'y';
+      } else if (continuation == 0x9F) {
+        appendLetterOrNumber('s');
+        appendLetterOrNumber('s');
+      }
+      if (folded != '\0') {
+        appendLetterOrNumber(folded);
+      } else if (continuation != 0x9F) {
+        appendSeparator();
+      }
+    } else {
+      appendSeparator();
+    }
+    if (output.length() >= 48) {
+      break;
+    }
+  }
+
+  while (output.endsWith("-")) {
+    output.remove(output.length() - 1);
+  }
+  return output;
+}
+
 String escapedResult(const String& input) {
   String result;
   result.reserve(input.length() + 8);
@@ -163,7 +237,8 @@ bool SessionConfigStore::begin(fs::FS& filesystem) {
   String error;
   ready_ = validateFlours(floursJson(), error) &&
            validatePresets(presetsJson(), error) &&
-           validateDraft(draftJson(), error);
+           validateDraft(draftJson(), error) &&
+           validateDraftPresetReference(draftJson(), presetsJson(), error);
   return ready_;
 }
 
@@ -199,33 +274,96 @@ String SessionConfigStore::backupJson() const {
 }
 
 String SessionConfigStore::saveFlours(const String& body) {
+  JsonDocument document;
+  if (deserializeJson(document, body)) {
+    return resultJson(false, "JSON del catalogo non valido.");
+  }
+  JsonArray items = document["items"].as<JsonArray>();
+  if (items.isNull()) {
+    return resultJson(false, "Catalogo farine non valido.");
+  }
+  for (JsonObject flour : items) {
+    String id = normalizeId(String(flour["id"] | ""));
+    if (id.length() == 0) {
+      id = normalizeId(String(flour["brand"] | "") + "-" +
+                       String(flour["name"] | ""));
+    }
+    flour["id"] = id;
+  }
+
+  String normalized;
+  serializeJson(document, normalized);
   String error;
-  if (!validateFlours(body, error)) return resultJson(false, error);
+  if (!validateFlours(normalized, error)) return resultJson(false, error);
   const String presets = presetsJson();
   const String draft = draftJson();
-  if (!validatePresets(presets, error, &body) ||
-      !validateDraft(draft, error, &body)) {
+  if (!validatePresets(presets, error, &normalized) ||
+      !validateDraft(draft, error, &normalized)) {
     return resultJson(false, String("Catalogo incompatibile: ") + error);
   }
-  if (!writeAtomic(Config::FLOURS_FILE, body)) {
+  if (!writeAtomic(Config::FLOURS_FILE, normalized)) {
     return resultJson(false, "Scrittura atomica del catalogo fallita.");
   }
   return resultJson(true, "Catalogo farine salvato.");
 }
 
 String SessionConfigStore::savePresets(const String& body) {
+  JsonDocument document;
+  if (deserializeJson(document, body)) {
+    return resultJson(false, "JSON dei preset non valido.");
+  }
+  JsonArray items = document["items"].as<JsonArray>();
+  if (items.isNull()) {
+    return resultJson(false, "Raccolta preset non valida.");
+  }
+  for (JsonObject preset : items) {
+    String id = normalizeId(String(preset["id"] | ""));
+    if (id.length() == 0) {
+      id = normalizeId(String(preset["name"] | ""));
+    }
+    preset["id"] = id;
+    yield();
+  }
+
+  String normalized;
+  serializeJson(document, normalized);
   String error;
-  if (!validatePresets(body, error)) return resultJson(false, error);
-  if (!writeAtomic(Config::PRESETS_FILE, body)) {
+  if (!validatePresets(normalized, error)) return resultJson(false, error);
+  if (!validateDraftPresetReference(draftJson(), normalized, error)) {
+    return resultJson(false, error);
+  }
+  if (!writeAtomic(Config::PRESETS_FILE, normalized)) {
     return resultJson(false, "Scrittura atomica dei preset fallita.");
   }
   return resultJson(true, "Preset salvati.");
 }
 
 String SessionConfigStore::saveDraft(const String& body) {
+  JsonDocument document;
+  if (deserializeJson(document, body)) {
+    return resultJson(false, "JSON dell'impasto non valido.");
+  }
+  if (!document["preset_id"].isNull()) {
+    document["preset_id"] =
+        normalizeId(String(document["preset_id"] | ""));
+  }
+  JsonArray flours = document["flours"].as<JsonArray>();
+  if (!flours.isNull()) {
+    for (JsonObject component : flours) {
+      component["flour_id"] =
+          normalizeId(String(component["flour_id"] | ""));
+      yield();
+    }
+  }
+
+  String normalized;
+  serializeJson(document, normalized);
   String error;
-  if (!validateDraft(body, error)) return resultJson(false, error);
-  if (!writeAtomic(Config::SESSION_DRAFT_FILE, body)) {
+  if (!validateDraft(normalized, error)) return resultJson(false, error);
+  if (!validateDraftPresetReference(normalized, presetsJson(), error)) {
+    return resultJson(false, error);
+  }
+  if (!writeAtomic(Config::SESSION_DRAFT_FILE, normalized)) {
     return resultJson(false, "Scrittura atomica dell'impasto fallita.");
   }
   return resultJson(true, "Prossimo impasto salvato.");
@@ -249,7 +387,8 @@ String SessionConfigStore::importBackup(const String& body) {
   String error;
   if (!validateFlours(flours, error) ||
       !validatePresets(presets, error, &flours) ||
-      !validateDraft(draft, error, &flours)) {
+      !validateDraft(draft, error, &flours) ||
+      !validateDraftPresetReference(draft, presets, error)) {
     return resultJson(false, String("Backup non valido: ") + error);
   }
   // Each document is individually recoverable. Validate everything before the
@@ -494,6 +633,7 @@ bool SessionConfigStore::validatePresets(const String& content,
     return false;
   }
   for (size_t index = 0; index < items.size(); ++index) {
+    yield();
     JsonObjectConst item = items[index];
     if (!validId(item["id"] | "") || String(item["name"] | "").isEmpty()) {
       error = "Ogni preset richiede id e nome.";
@@ -556,6 +696,29 @@ bool SessionConfigStore::validateDraft(const String& content,
     error = "Tipo di lievito non riconosciuto.";
     return false;
   }
+
+  JsonDocument catalog;
+  const String catalogContent =
+      catalogOverride == nullptr ? floursJson() : *catalogOverride;
+  if (deserializeJson(catalog, catalogContent)) {
+    error = "Catalogo farine non disponibile o non valido.";
+    return false;
+  }
+  const JsonArrayConst catalogItems = catalog["items"].as<JsonArrayConst>();
+  if (catalogItems.isNull() || catalogItems.size() == 0) {
+    error = "Catalogo farine vuoto o non valido.";
+    return false;
+  }
+
+  const auto flourIdExists = [&](const String& flourId) {
+    for (JsonObjectConst item : catalogItems) {
+      if (String(item["id"] | "") == flourId) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   JsonArrayConst flours = document["flours"].as<JsonArrayConst>();
   if (flours.isNull() || flours.size() == 0 || flours.size() > 8) {
     error = "Servono da 1 a 8 farine nell'impasto.";
@@ -563,8 +726,9 @@ bool SessionConfigStore::validateDraft(const String& content,
   }
   float totalPct = 0;
   for (JsonObjectConst component : flours) {
+    yield();
     const String id = component["flour_id"] | "";
-    if (id.isEmpty() || !flourExists(id, catalogOverride) ||
+    if (id.isEmpty() || !flourIdExists(id) ||
         !finiteNumber(component["pct"], 0.01f, 100.0f)) {
       error = String("Farina o percentuale non valida: ") + id;
       return false;
@@ -578,15 +742,27 @@ bool SessionConfigStore::validateDraft(const String& content,
   return true;
 }
 
-bool SessionConfigStore::flourExists(const String& flourId,
-                                     const String* catalogOverride) const {
-  JsonDocument catalog;
-  const String content = catalogOverride == nullptr ? floursJson()
-                                                     : *catalogOverride;
-  if (deserializeJson(catalog, content)) return false;
-  for (JsonObjectConst item : catalog["items"].as<JsonArrayConst>()) {
-    if (String(item["id"] | "") == flourId) return true;
+bool SessionConfigStore::validateDraftPresetReference(
+    const String& draftContent, const String& presetsContent,
+    String& error) const {
+  JsonDocument draft;
+  JsonDocument presets;
+  if (deserializeJson(draft, draftContent) ||
+      deserializeJson(presets, presetsContent)) {
+    error = "Impossibile verificare il preset della bozza.";
+    return false;
   }
+  if (draft["preset_id"].isNull()) return true;
+  const String presetId = draft["preset_id"] | "";
+  if (presetId.isEmpty()) {
+    error = "preset_id deve essere nullo oppure un ID valido.";
+    return false;
+  }
+  for (JsonObjectConst preset : presets["items"].as<JsonArrayConst>()) {
+    if (String(preset["id"] | "") == presetId) return true;
+  }
+  error = String("La bozza usa il preset inesistente: ") + presetId +
+          ". Applicare un altro preset prima di rinominarlo o eliminarlo.";
   return false;
 }
 
