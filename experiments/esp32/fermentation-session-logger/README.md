@@ -97,6 +97,11 @@ La pagina offre:
 - numero reale di letture in coda, segmenti e byte della coda InfluxDB
   persistente.
 
+La pagina mostra separatamente lo stato di VL53L0X, SHT3x, LittleFS, coda e
+NTP. Se un sensore non e' disponibile, START restituisce il motivo preciso e il
+firmware tenta automaticamente una nuova inizializzazione ogni 15 secondi,
+senza richiedere un riavvio.
+
 L'interfaccia non richiede Internet, ma telefono ed ESP32 devono essere sulla
 stessa rete locale. Non e' presente autenticazione: non pubblicare la porta 80
 del dispositivo su Internet e usare una rete Wi-Fi considerata affidabile.

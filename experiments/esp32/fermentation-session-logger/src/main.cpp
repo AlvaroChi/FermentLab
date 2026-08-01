@@ -54,6 +54,7 @@ bool wifiCredentialsWarningEmitted = false;
 uint32_t wifiAttemptStartedMs = 0;
 uint32_t nextWifiAttemptMs = 0;
 uint32_t wifiRetryDelayMs = Config::WIFI_RETRY_INITIAL_MS;
+uint32_t lastSensorRetryMs = 0;
 
 enum class DistanceInvalidReason : uint8_t {
   None,
@@ -457,6 +458,31 @@ bool formatLocalTime(time_t timestamp, char* iso, size_t isoSize,
   return true;
 }
 
+void serviceSensorRecovery() {
+  if (distanceSensorReady && ambientSensorReady) {
+    return;
+  }
+  const uint32_t now = millis();
+  if (now - lastSensorRetryMs < Config::SENSOR_RETRY_INTERVAL_MS) {
+    return;
+  }
+  lastSensorRetryMs = now;
+
+  if (!distanceSensorReady) {
+    distanceSensorReady = initializeDistanceSensor();
+    if (distanceSensorReady) {
+      warmUpDistanceSensor();
+      emitEvent("status", "VL53L0X_RECOVERED");
+    }
+  }
+  if (!ambientSensorReady) {
+    ambientSensorReady = initializeAmbientSensor();
+    if (ambientSensorReady) {
+      emitEvent("status", "SHT3X_RECOVERED");
+    }
+  }
+}
+
 void writeSessionStart(Print& output, time_t timestamp,
                        const char* isoTimestamp) {
   output.print(F("{\"schema\":\"fermentlab.session.v1\",\"type\":\"session_start\",\"device_id\":\""));
@@ -760,7 +786,7 @@ String webStatusJson() {
   }
 
   String json;
-  json.reserve(448);
+  json.reserve(768);
   json += F("{\"device_id\":\"");
   json += deviceId;
   json += F("\",\"session_active\":");
@@ -783,6 +809,28 @@ String webStatusJson() {
   }
   json += F(",\"time_valid\":");
   json += timeValid ? F("true") : F("false");
+  json += F(",\"storage_ready\":");
+  json += storageReady ? F("true") : F("false");
+  json += F(",\"telemetry_queue_ready\":");
+  json += telemetryQueueReady ? F("true") : F("false");
+  json += F(",\"distance_sensor_ready\":");
+  json += distanceSensorReady ? F("true") : F("false");
+  json += F(",\"ambient_sensor_ready\":");
+  json += ambientSensorReady ? F("true") : F("false");
+  json += F(",\"start_blocker\":");
+  if (sessionActive) {
+    json += F("null");
+  } else if (!storageReady) {
+    json += F("\"Memoria LittleFS non disponibile.\"");
+  } else if (!distanceSensorReady) {
+    json += F("\"Sensore VL53L0X non disponibile; nuovo tentativo automatico entro 15 secondi.\"");
+  } else if (!ambientSensorReady) {
+    json += F("\"Sensore SHT3x non disponibile; nuovo tentativo automatico entro 15 secondi.\"");
+  } else if (!timeValid) {
+    json += F("\"Orologio non sincronizzato; attendere NTP.\"");
+  } else {
+    json += F("null");
+  }
   json += F(",\"ip\":\"");
   json += WiFi.localIP().toString();
   json += F("\",\"rssi_dbm\":");
@@ -920,6 +968,7 @@ void setup() {
   distanceSensorReady = initializeDistanceSensor();
   warmUpDistanceSensor();
   ambientSensorReady = initializeAmbientSensor();
+  lastSensorRetryMs = millis();
 
   webInterface.configure(webStatusJson, webTestJson, toggleSessionFromWeb);
 
@@ -939,6 +988,7 @@ void setup() {
 void loop() {
   pollButton();
   serviceConnectivity();
+  serviceSensorRecovery();
   webInterface.tick();
 
   if (sessionActive &&

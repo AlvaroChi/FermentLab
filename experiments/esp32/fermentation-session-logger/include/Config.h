@@ -20,6 +20,7 @@ constexpr uint8_t SHT3X_ALTERNATE_I2C_ADDRESS = 0x45;
 constexpr uint32_t SHT3X_MEASUREMENT_DELAY_MS = 20;
 
 constexpr uint16_t SENSOR_TIMEOUT_MS = 500;
+constexpr uint32_t SENSOR_RETRY_INTERVAL_MS = 15000;
 constexpr uint32_t TIMEOUT_MARGIN_MS = 250;
 constexpr uint32_t TIMING_BUDGET_MS = 50;
 constexpr uint32_t SAMPLE_DELAY_MS = 20;
