@@ -211,6 +211,7 @@ void printHelp() {
 
 void printStatus() {
   Serial.println(F("\nConfigurazione corrente:"));
+  Serial.printf("  scheda: %s\n", Config::BOARD_PROFILE);
   Serial.printf("  sensore: %s\n", sensorReady ? "pronto" : "NON pronto");
   Serial.printf("  campioni per serie: %u\n",
                 static_cast<unsigned>(sampleCount));
@@ -559,7 +560,7 @@ void pollSerial() {
 
 void setup() {
   Serial.begin(Config::SERIAL_BAUD);
-  delay(500);
+  delay(Config::STARTUP_UPLOAD_GRACE_MS);
 
   Serial.println(F("\n=== Taratura ESP32 + VL53L0X ==="));
   Wire.begin(Config::SDA_PIN, Config::SCL_PIN);

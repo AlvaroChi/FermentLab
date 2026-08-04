@@ -8,6 +8,7 @@
 #include <Wire.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <time.h>
 
@@ -780,6 +781,32 @@ void serviceSensorRecovery() {
   }
 }
 
+float calibratedExternalDistanceMm(float rawMedianMm) {
+  if (!std::isfinite(rawMedianMm) ||
+      Config::DISTANCE_CALIBRATION_COUNT < 2 ||
+      rawMedianMm < Config::DISTANCE_CALIBRATION[0].rawMedianMm ||
+      rawMedianMm > Config::DISTANCE_CALIBRATION[
+                        Config::DISTANCE_CALIBRATION_COUNT - 1]
+                        .rawMedianMm) {
+    return NAN;
+  }
+
+  for (size_t index = 1; index < Config::DISTANCE_CALIBRATION_COUNT;
+       ++index) {
+    const auto& lower = Config::DISTANCE_CALIBRATION[index - 1];
+    const auto& upper = Config::DISTANCE_CALIBRATION[index];
+    if (rawMedianMm <= upper.rawMedianMm) {
+      const float fraction =
+          (rawMedianMm - lower.rawMedianMm) /
+          (upper.rawMedianMm - lower.rawMedianMm);
+      return lower.externalDistanceMm +
+             fraction * (upper.externalDistanceMm -
+                         lower.externalDistanceMm);
+    }
+  }
+  return NAN;
+}
+
 void writeSessionStart(Print& output, time_t timestamp,
                        const char* isoTimestamp) {
   output.print(F("{\"schema\":\"fermentlab.session.v1\",\"type\":\"session_start\",\"device_id\":\""));
@@ -827,10 +854,9 @@ void emitMeasurement() {
     distanceStatus = "VL53L0X_NOT_READY";
   } else if (distance.available()) {
     correctedDistanceMm =
-        (static_cast<float>(distance.median) -
-         Config::CALIBRATION_INTERCEPT_MM) /
-        Config::CALIBRATION_SLOPE;
-    if (correctedDistanceMm < Config::CALIBRATED_MIN_MM ||
+        calibratedExternalDistanceMm(static_cast<float>(distance.median));
+    if (!std::isfinite(correctedDistanceMm) ||
+        correctedDistanceMm < Config::CALIBRATED_MIN_MM ||
         correctedDistanceMm > Config::CALIBRATED_MAX_MM) {
       correctedDistanceMm = NAN;
       distanceStatus = "OUTSIDE_CALIBRATED_RANGE";
@@ -1260,20 +1286,22 @@ String webTestJson() {
   const FilteredDistance distance = acquireFilteredDistance();
 
   float correctedDistanceMm = NAN;
+  float doughHeightMm = NAN;
   const char* distanceStatus = "INSUFFICIENT_READINGS";
   if (!distanceSensorReady) {
     distanceStatus = "VL53L0X_NOT_READY";
   } else if (distance.available()) {
     correctedDistanceMm =
-        (static_cast<float>(distance.median) -
-         Config::CALIBRATION_INTERCEPT_MM) /
-        Config::CALIBRATION_SLOPE;
-    if (correctedDistanceMm < Config::CALIBRATED_MIN_MM ||
+        calibratedExternalDistanceMm(static_cast<float>(distance.median));
+    if (!std::isfinite(correctedDistanceMm) ||
+        correctedDistanceMm < Config::CALIBRATED_MIN_MM ||
         correctedDistanceMm > Config::CALIBRATED_MAX_MM) {
       correctedDistanceMm = NAN;
       distanceStatus = "OUTSIDE_CALIBRATED_RANGE";
     } else {
       distanceStatus = "OK";
+      doughHeightMm =
+          Config::SENSOR_TO_CONTAINER_BOTTOM_MM - correctedDistanceMm;
     }
   }
 
@@ -1302,6 +1330,8 @@ String webTestJson() {
   json += distance.available() ? String(distance.median) : String("null");
   json += F(",\"distance_corrected_mm\":");
   json += jsonFloatValue(correctedDistanceMm);
+  json += F(",\"dough_height_mm\":");
+  json += jsonFloatValue(doughHeightMm);
   json += F(",\"distance_status\":\"");
   json += distanceStatus;
   json += F("\"}");

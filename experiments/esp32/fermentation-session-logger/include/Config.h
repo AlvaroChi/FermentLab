@@ -58,11 +58,31 @@ constexpr uint16_t MIN_SENSOR_RANGE_MM = 5;
 constexpr uint16_t MAX_SENSOR_RANGE_MM = 2000;
 constexpr uint8_t DEVICE_STATUS_RANGE_COMPLETE = 11;
 
-// Taratura finale validata tra 50 e 175 mm.
-constexpr float CALIBRATION_SLOPE = 0.99605958f;
-constexpr float CALIBRATION_INTERCEPT_MM = 6.13040452f;
-constexpr float CALIBRATED_MIN_MM = 50.0f;
-constexpr float CALIBRATED_MAX_MM = 175.0f;
+// Final-case calibration collected on 2026-08-04. Raw medians are mapped to
+// distances measured from the smooth external datum of the enclosure. Linear
+// interpolation preserves the measured close-range non-linearity caused by
+// the recessed sensor and enclosure aperture.
+struct DistanceCalibrationPoint {
+  float rawMedianMm;
+  float externalDistanceMm;
+};
+
+constexpr DistanceCalibrationPoint DISTANCE_CALIBRATION[] = {
+    {73.000f, 10.0f},  {75.833f, 15.0f},  {79.000f, 20.0f},
+    {81.333f, 25.0f},  {87.333f, 30.0f},  {94.000f, 35.0f},
+    {98.200f, 40.0f},  {104.500f, 45.0f}, {109.500f, 50.0f},
+    {114.500f, 55.0f}, {119.500f, 60.0f}, {124.000f, 65.0f},
+    {129.667f, 70.0f}, {134.000f, 75.0f}, {138.000f, 80.0f},
+    {143.000f, 85.0f}, {148.000f, 90.0f}, {152.000f, 95.0f},
+    {157.333f, 100.0f}, {161.000f, 105.0f}, {166.000f, 110.0f},
+    {171.000f, 115.0f}, {176.000f, 120.0f}, {181.000f, 125.0f},
+    {184.500f, 130.0f}, {194.500f, 140.0f}, {200.000f, 145.0f},
+    {203.333f, 150.0f}, {209.000f, 155.0f}, {213.500f, 160.0f},
+};
+constexpr size_t DISTANCE_CALIBRATION_COUNT =
+    sizeof(DISTANCE_CALIBRATION) / sizeof(DISTANCE_CALIBRATION[0]);
+constexpr float CALIBRATED_MIN_MM = 10.0f;
+constexpr float CALIBRATED_MAX_MM = 148.0f;
 
 // The interval is selected in the session draft and then frozen at START.
 // Existing configurations without the field continue to use the default.
@@ -97,9 +117,10 @@ constexpr size_t CONFIG_BACKUP_MAX_BYTES = 64 * 1024;
 constexpr uint16_t WEB_SERVER_PORT = 80;
 constexpr char WEB_HOSTNAME[] = "fermentlab";
 
-// Set the vessel geometry when known. Zero keeps calculated height/volume
-// absent instead of publishing invented values.
-constexpr float SENSOR_TO_CONTAINER_BOTTOM_MM = 0.0f;
+// Physical distance from the enclosure datum to the inner vessel bottom.
+// The optical bottom reading is deliberately not used because the curved or
+// reflective empty vessel produced position-dependent results.
+constexpr float SENSOR_TO_CONTAINER_BOTTOM_MM = 148.0f;
 constexpr float CONTAINER_CROSS_SECTION_CM2 = 0.0f;
 
 constexpr char TIMEZONE[] = "CET-1CEST,M3.5.0/2,M10.5.0/3";

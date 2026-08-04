@@ -63,23 +63,21 @@ volume. InfluxDB usa timestamp con precisione in secondi.
 - connessione Wi-Fi, sincronizzazione NTP e recupero coda avvengono in
   background con una macchina a stati non bloccante;
 - **START** dalla dashboard: avvio sessione quando l'orologio e' gia' sincronizzato;
-- lettura immediata, poi ogni `TIMEINTERVAL` secondi;
+- lettura immediata, poi secondo l'intervallo scelto nella bozza di sessione;
 - **STOP** dalla dashboard: chiusura e rinomina del file nella memoria dell'ESP32;
 - dopo la chiusura stampa automaticamente l'intero JSONL nel Serial Monitor;
 - fuso `Europe/Rome`, con passaggio automatico CET/CEST;
 - ID hardware derivato dall'eFuse MAC dell'ESP32;
-- distanza filtrata con mediana di 7 letture e correzione validata 50-175 mm;
+- distanza filtrata con mediana di 7 letture e tabella di calibrazione del case
+  finale validata tra 10 e 148 mm;
 - temperatura e umidita' SHT3x protette da controllo CRC;
 - temperatura impasto DS18B20 a 12 bit, acquisita senza attese bloccanti.
 
 Il sensore SHT3x popola la temperatura ambiente; il DS18B20 sul GPIO definito
 dal profilo hardware popola la temperatura impasto nel JSONL e in InfluxDB. La
-resistenza da 4,7 kOhm deve collegare il filo dati a 3V3. Per calcolare altezza
-e volume impostare in
-`include/Config.h` `SENSOR_TO_CONTAINER_BOTTOM_MM` e
-`CONTAINER_CROSS_SECTION_CM2`; lasciati a zero, i due campi restano nulli.
-
-`TIMEINTERVAL` e' definito in `include/Config.h` e vale inizialmente 10 secondi.
+resistenza da 4,7 kOhm deve collegare il filo dati a 3V3. L'altezza impasto usa
+il fondo fisico del vaso a 148 mm dal riferimento esterno del case. Il volume
+resta assente finche' `CONTAINER_CROSS_SECTION_CM2` non viene configurato.
 
 ## Interfaccia web locale
 

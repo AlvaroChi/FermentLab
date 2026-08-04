@@ -4,10 +4,24 @@
 
 namespace Config {
 
-// Collegamenti predefiniti per ESP32 DevKit / ESP32-WROOM.
+#if defined(FERMENTLAB_BOARD_ESP32) && defined(FERMENTLAB_BOARD_S3_ZERO)
+#error "Select only one FermentLab board profile"
+#elif defined(FERMENTLAB_BOARD_ESP32)
+constexpr char BOARD_PROFILE[] = "ESP32_CLASSIC";
 constexpr uint8_t SDA_PIN = 21;
 constexpr uint8_t SCL_PIN = 22;
-constexpr uint32_t I2C_FREQUENCY_HZ = 400000;
+constexpr uint32_t STARTUP_UPLOAD_GRACE_MS = 500;
+#elif defined(FERMENTLAB_BOARD_S3_ZERO)
+constexpr char BOARD_PROFILE[] = "WAVESHARE_ESP32_S3_ZERO";
+constexpr uint8_t SDA_PIN = 1;
+constexpr uint8_t SCL_PIN = 2;
+constexpr uint32_t STARTUP_UPLOAD_GRACE_MS = 8000;
+#else
+#error "No FermentLab board profile selected by PlatformIO"
+#endif
+
+// Match the conservative bus configuration used by the final logger.
+constexpr uint32_t I2C_FREQUENCY_HZ = 100000;
 constexpr uint8_t SENSOR_I2C_ADDRESS = 0x29;
 
 constexpr uint32_t SERIAL_BAUD = 115200;
