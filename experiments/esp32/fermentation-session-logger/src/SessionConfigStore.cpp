@@ -64,6 +64,7 @@ const char DEFAULT_PRESETS[] PROGMEM = R"JSON({
     {
       "id":"classica-esempio",
       "name":"Pizza classica - esempio",
+      "reading_interval_s":10,
       "total_flour_g":1000,
       "hydration_pct":65,
       "salt_pct":2.8,
@@ -77,6 +78,7 @@ const char DEFAULT_PRESETS[] PROGMEM = R"JSON({
     {
       "id":"contemporanea-esempio",
       "name":"Pizza contemporanea - esempio",
+      "reading_interval_s":60,
       "total_flour_g":1000,
       "hydration_pct":72,
       "salt_pct":2.7,
@@ -95,6 +97,7 @@ const char DEFAULT_DRAFT[] PROGMEM = R"JSON({
   "revision":1,
   "name":"Nuovo impasto",
   "preset_id":"classica-esempio",
+  "reading_interval_s":10,
   "total_flour_g":1000,
   "hydration_pct":65,
   "salt_pct":2.8,
@@ -446,6 +449,15 @@ float SessionConfigStore::draftHydrationPercent() const {
   return document["hydration_pct"] | NAN;
 }
 
+uint32_t SessionConfigStore::draftReadingIntervalSeconds() const {
+  JsonDocument document;
+  if (deserializeJson(document, draftJson())) {
+    return Config::DEFAULT_READING_INTERVAL_S;
+  }
+  return document["reading_interval_s"] |
+         Config::DEFAULT_READING_INTERVAL_S;
+}
+
 bool SessionConfigStore::writeRecipeSnapshot(Print& output) const {
   JsonDocument draft;
   JsonDocument catalog;
@@ -649,6 +661,8 @@ bool SessionConfigStore::validatePresets(const String& content,
     JsonDocument draft;
     draft["name"] = item["name"];
     draft["preset_id"] = item["id"];
+    draft["reading_interval_s"] =
+        item["reading_interval_s"] | Config::DEFAULT_READING_INTERVAL_S;
     draft["total_flour_g"] = item["total_flour_g"];
     draft["hydration_pct"] = item["hydration_pct"];
     draft["salt_pct"] = item["salt_pct"];
@@ -681,6 +695,10 @@ bool SessionConfigStore::validateDraft(const String& content,
     return false;
   }
   if (String(document["name"] | "").isEmpty() ||
+      (!document["reading_interval_s"].isNull() &&
+       !finiteNumber(document["reading_interval_s"],
+                     Config::MIN_READING_INTERVAL_S,
+                     Config::MAX_READING_INTERVAL_S)) ||
       !finiteNumber(document["total_flour_g"], 1, 100000) ||
       !finiteNumber(document["hydration_pct"], 0, 200) ||
       !finiteNumber(document["salt_pct"], 0, 20) ||

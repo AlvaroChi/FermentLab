@@ -2,9 +2,6 @@
 
 #include <Arduino.h>
 
-// Intervallo tra misure espresso in secondi.
-#define TIMEINTERVAL 10
-
 namespace Config {
 
 #if defined(FERMENTLAB_BOARD_ESP32) && \
@@ -34,6 +31,11 @@ constexpr uint32_t DS18B20_CONVERSION_MS = 750;
 constexpr uint32_t I2C_FREQUENCY_HZ = 100000;
 constexpr uint16_t I2C_TRANSACTION_TIMEOUT_MS = 10;
 constexpr uint32_t SERIAL_BAUD = 115200;
+#if defined(FERMENTLAB_BOARD_S3_ZERO)
+constexpr uint32_t STARTUP_UPLOAD_GRACE_MS = 8000;
+#else
+constexpr uint32_t STARTUP_UPLOAD_GRACE_MS = 500;
+#endif
 
 constexpr uint8_t VL53L0X_I2C_ADDRESS = 0x29;
 constexpr uint8_t SHT3X_DEFAULT_I2C_ADDRESS = 0x44;
@@ -62,7 +64,11 @@ constexpr float CALIBRATION_INTERCEPT_MM = 6.13040452f;
 constexpr float CALIBRATED_MIN_MM = 50.0f;
 constexpr float CALIBRATED_MAX_MM = 175.0f;
 
-constexpr uint32_t READING_INTERVAL_MS = TIMEINTERVAL * 1000UL;
+// The interval is selected in the session draft and then frozen at START.
+// Existing configurations without the field continue to use the default.
+constexpr uint32_t DEFAULT_READING_INTERVAL_S = 10;
+constexpr uint32_t MIN_READING_INTERVAL_S = 5;
+constexpr uint32_t MAX_READING_INTERVAL_S = 24 * 60 * 60;
 constexpr uint32_t WIFI_TIMEOUT_MS = 20000;
 constexpr uint32_t WIFI_RETRY_INITIAL_MS = 5000;
 constexpr uint32_t WIFI_RETRY_MAX_MS = 60000;

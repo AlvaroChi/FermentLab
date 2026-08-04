@@ -19,7 +19,43 @@
 #include "WebInterface.h"
 #include "secrets.h"
 
+#if defined(WIFI_SSID_2) != defined(WIFI_PASSWORD_2)
+#error "WIFI_SSID_2 and WIFI_PASSWORD_2 must be defined together"
+#endif
+#if defined(WIFI_SSID_3) != defined(WIFI_PASSWORD_3)
+#error "WIFI_SSID_3 and WIFI_PASSWORD_3 must be defined together"
+#endif
+#if defined(WIFI_SSID_4) != defined(WIFI_PASSWORD_4)
+#error "WIFI_SSID_4 and WIFI_PASSWORD_4 must be defined together"
+#endif
+#if defined(WIFI_SSID_5) != defined(WIFI_PASSWORD_5)
+#error "WIFI_SSID_5 and WIFI_PASSWORD_5 must be defined together"
+#endif
+
 namespace {
+
+struct WifiCredential {
+  const char* ssid;
+  const char* password;
+};
+
+const WifiCredential WIFI_CREDENTIALS[] = {
+    {WIFI_SSID, WIFI_PASSWORD},
+#if defined(WIFI_SSID_2)
+    {WIFI_SSID_2, WIFI_PASSWORD_2},
+#endif
+#if defined(WIFI_SSID_3)
+    {WIFI_SSID_3, WIFI_PASSWORD_3},
+#endif
+#if defined(WIFI_SSID_4)
+    {WIFI_SSID_4, WIFI_PASSWORD_4},
+#endif
+#if defined(WIFI_SSID_5)
+    {WIFI_SSID_5, WIFI_PASSWORD_5},
+#endif
+};
+constexpr size_t WIFI_CREDENTIAL_COUNT =
+    sizeof(WIFI_CREDENTIALS) / sizeof(WIFI_CREDENTIALS[0]);
 
 VL53L0X distanceSensor;
 OneWire doughOneWire(Config::DS18B20_PIN);
@@ -38,6 +74,8 @@ bool baselineAvailable = false;
 float baselineDistanceMm = NAN;
 uint32_t sessionStartMs = 0;
 uint32_t lastReadingMs = 0;
+uint32_t sessionReadingIntervalSeconds =
+    Config::DEFAULT_READING_INTERVAL_S;
 uint32_t sequenceNumber = 0;
 time_t lastMeasurementTimestamp = 0;
 
@@ -63,6 +101,7 @@ bool wifiCredentialsWarningEmitted = false;
 uint32_t wifiAttemptStartedMs = 0;
 uint32_t nextWifiAttemptMs = 0;
 uint32_t wifiRetryDelayMs = Config::WIFI_RETRY_INITIAL_MS;
+size_t wifiCredentialIndex = 0;
 uint32_t lastSensorRetryMs = 0;
 uint8_t i2cDeviceCount = 0;
 uint8_t i2cScanErrors = 0;
@@ -556,9 +595,41 @@ void initializeDeviceId() {
            static_cast<unsigned long long>(chipId & 0xFFFFFFFFFFFFULL));
 }
 
+bool wifiCredentialAvailable(size_t index) {
+  if (index >= WIFI_CREDENTIAL_COUNT) return false;
+  const char* ssid = WIFI_CREDENTIALS[index].ssid;
+  return ssid != nullptr && std::strlen(ssid) > 0 &&
+         std::strncmp(ssid, "YOUR_", 5) != 0;
+}
+
 bool wifiCredentialsAvailable() {
-  return std::strlen(WIFI_SSID) > 0 &&
-         std::strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0;
+  for (size_t index = 0; index < WIFI_CREDENTIAL_COUNT; ++index) {
+    if (wifiCredentialAvailable(index)) return true;
+  }
+  return false;
+}
+
+bool selectNextWifiCredential() {
+  const size_t previous = wifiCredentialIndex;
+  for (size_t offset = 1; offset <= WIFI_CREDENTIAL_COUNT; ++offset) {
+    const size_t candidate =
+        (previous + offset) % WIFI_CREDENTIAL_COUNT;
+    if (wifiCredentialAvailable(candidate)) {
+      wifiCredentialIndex = candidate;
+      return candidate <= previous;
+    }
+  }
+  return true;
+}
+
+void selectFirstAvailableWifiCredential() {
+  if (wifiCredentialAvailable(wifiCredentialIndex)) return;
+  for (size_t index = 0; index < WIFI_CREDENTIAL_COUNT; ++index) {
+    if (wifiCredentialAvailable(index)) {
+      wifiCredentialIndex = index;
+      return;
+    }
+  }
 }
 
 void serviceConnectivity() {
@@ -622,9 +693,12 @@ void serviceConnectivity() {
     emitEvent("error", "WIFI_TIMEOUT");
     WiFi.disconnect();
     wifiAttemptInProgress = false;
-    nextWifiAttemptMs = now + wifiRetryDelayMs;
-    wifiRetryDelayMs = std::min(wifiRetryDelayMs * 2,
-                                Config::WIFI_RETRY_MAX_MS);
+    const bool completedCycle = selectNextWifiCredential();
+    nextWifiAttemptMs = completedCycle ? now + wifiRetryDelayMs : now;
+    if (completedCycle) {
+      wifiRetryDelayMs = std::min(wifiRetryDelayMs * 2,
+                                  Config::WIFI_RETRY_MAX_MS);
+    }
     return;
   }
 
@@ -633,7 +707,9 @@ void serviceConnectivity() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(Config::WEB_HOSTNAME);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  selectFirstAvailableWifiCredential();
+  WiFi.begin(WIFI_CREDENTIALS[wifiCredentialIndex].ssid,
+             WIFI_CREDENTIALS[wifiCredentialIndex].password);
   wifiAttemptInProgress = true;
   wifiAttemptStartedMs = now;
   emitEvent("status", "WIFI_CONNECTING");
@@ -715,7 +791,7 @@ void writeSessionStart(Print& output, time_t timestamp,
   output.print(F("\",\"epoch_s\":"));
   output.print(static_cast<unsigned long>(timestamp));
   output.print(F(",\"timezone\":\"Europe/Rome\",\"interval_s\":"));
-  output.print(TIMEINTERVAL);
+  output.print(sessionReadingIntervalSeconds);
   output.print(F(",\"recipe\":"));
   if (!sessionConfigStore.writeRecipeSnapshot(output)) {
     output.print(F("null"));
@@ -921,6 +997,8 @@ void startSession() {
   }
   baselineAvailable = false;
   baselineDistanceMm = NAN;
+  sessionReadingIntervalSeconds =
+      sessionConfigStore.draftReadingIntervalSeconds();
   sequenceNumber = 0;
   sessionStartMs = millis();
   sessionActive = true;
@@ -1025,12 +1103,17 @@ String webStatusJson() {
       formatLocalTime(lastMeasurementTimestamp, lastMeasurementIso,
                       sizeof(lastMeasurementIso));
   uint32_t nextReadingSeconds = 0;
+  const uint32_t displayedReadingIntervalSeconds =
+      sessionActive ? sessionReadingIntervalSeconds
+                    : sessionConfigStore.draftReadingIntervalSeconds();
+  const uint32_t sessionReadingIntervalMs =
+      sessionReadingIntervalSeconds * 1000UL;
   if (sessionActive) {
     const uint32_t elapsedSinceReading = millis() - lastReadingMs;
     const uint32_t remainingMs =
-        elapsedSinceReading >= Config::READING_INTERVAL_MS
+        elapsedSinceReading >= sessionReadingIntervalMs
             ? 0
-            : Config::READING_INTERVAL_MS - elapsedSinceReading;
+            : sessionReadingIntervalMs - elapsedSinceReading;
     nextReadingSeconds = (remainingMs + 999UL) / 1000UL;
   }
 
@@ -1127,7 +1210,7 @@ String webStatusJson() {
   json += F(",\"uptime_s\":");
   json += String(millis() / 1000UL);
   json += F(",\"reading_interval_s\":");
-  json += String(TIMEINTERVAL);
+  json += String(displayedReadingIntervalSeconds);
   json += F(",\"session_measurements\":");
   json += String(sequenceNumber);
   json += F(",\"next_reading_in_s\":");
@@ -1258,7 +1341,7 @@ String importConfigFromWeb(const String& body) {
 
 void setup() {
   Serial.begin(Config::SERIAL_BAUD);
-  delay(500);
+  delay(Config::STARTUP_UPLOAD_GRACE_MS);
 
   initializeDeviceId();
   storageReady = mountLittleFsSafely();
@@ -1310,7 +1393,7 @@ void setup() {
   Serial.print(F(",\"ds18b20_gpio\":"));
   Serial.print(Config::DS18B20_PIN);
   Serial.print(F(",\"interval_s\":"));
-  Serial.print(TIMEINTERVAL);
+  Serial.print(Config::DEFAULT_READING_INTERVAL_S);
   Serial.println(F("}"));
 }
 
@@ -1321,7 +1404,7 @@ void loop() {
   webInterface.tick();
 
   if (sessionActive &&
-      millis() - lastReadingMs >= Config::READING_INTERVAL_MS) {
+      millis() - lastReadingMs >= sessionReadingIntervalSeconds * 1000UL) {
     emitMeasurement();
     lastReadingMs = millis();
   }

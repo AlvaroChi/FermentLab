@@ -22,6 +22,7 @@ class SessionConfigStore {
   String draftName() const;
   String draftFlourSummary() const;
   float draftHydrationPercent() const;
+  uint32_t draftReadingIntervalSeconds() const;
   bool writeRecipeSnapshot(Print& output) const;
 
  private:
