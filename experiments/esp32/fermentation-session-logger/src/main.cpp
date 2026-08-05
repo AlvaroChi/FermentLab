@@ -71,6 +71,7 @@ float lastDoughTemperatureC = NAN;
 uint8_t ambientSensorAddress = Config::SHT3X_DEFAULT_I2C_ADDRESS;
 
 bool sessionActive = false;
+bool webToggleRequested = false;
 bool baselineAvailable = false;
 float baselineDistanceMm = NAN;
 uint32_t sessionStartMs = 0;
@@ -90,6 +91,7 @@ bool storageReady = false;
 bool telemetryQueueReady = false;
 PersistentQueue telemetryQueue;
 InfluxUploader influxUploader;
+bool influxFailureActive = false;
 WebInterface webInterface;
 SessionConfigStore sessionConfigStore;
 bool recipeConfigReady = false;
@@ -114,6 +116,9 @@ bool i2cAmbientPresent = false;
 char i2cAddressSummary[192] = "non ancora scansionato";
 bool statusLedAvailable = false;
 bool statusLedOn = false;
+uint8_t statusLedRed = 0;
+uint8_t statusLedGreen = 0;
+uint8_t statusLedBlue = 0;
 
 enum class StatusLedPattern : uint8_t {
   Off,
@@ -122,6 +127,13 @@ enum class StatusLedPattern : uint8_t {
   SlowBlink,
   DoubleBlink,
   Heartbeat,
+};
+
+struct StatusLedState {
+  StatusLedPattern pattern;
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
 };
 
 enum class DistanceInvalidReason : uint8_t {
@@ -217,14 +229,19 @@ void writeStatusLedRaw(bool on, uint8_t red = 0, uint8_t green = 0,
   digitalWrite(Config::STATUS_LED_PIN, level);
 }
 
-void setStatusLed(bool on) {
-  if (!statusLedAvailable || statusLedOn == on) {
+void setStatusLed(bool on, uint8_t red, uint8_t green, uint8_t blue) {
+  if (!statusLedAvailable ||
+      (statusLedOn == on && (!on || (statusLedRed == red &&
+                                    statusLedGreen == green &&
+                                    statusLedBlue == blue)))) {
     return;
   }
   statusLedOn = on;
+  statusLedRed = on ? red : 0;
+  statusLedGreen = on ? green : 0;
+  statusLedBlue = on ? blue : 0;
   if (on) {
-    // Low brightness to avoid glare on standalone setups.
-    writeStatusLedRaw(true, 0, 10, 24);
+    writeStatusLedRaw(true, red, green, blue);
   } else {
     writeStatusLedRaw(false);
   }
@@ -261,29 +278,34 @@ bool patternLevel(StatusLedPattern pattern, uint32_t nowMs) {
   return false;
 }
 
-StatusLedPattern currentStatusLedPattern() {
-  if (!storageReady || !telemetryQueueReady) {
-    return StatusLedPattern::FastBlink;
+StatusLedState currentStatusLedState() {
+  const bool errorActive =
+      !storageReady || !telemetryQueueReady ||
+      WiFi.status() != WL_CONNECTED || !webInterface.running() ||
+      !distanceSensorReady || !ambientSensorReady || !doughSensorReady ||
+      isnan(lastDoughTemperatureC) || !recipeConfigReady ||
+      !ntpReadyReported || influxFailureActive;
+  if (errorActive) {
+    return {StatusLedPattern::FastBlink, 24, 0, 0};
   }
   if (sessionActive) {
-    return StatusLedPattern::Solid;
+    return {StatusLedPattern::SlowBlink, 24, 7, 0};
   }
-  if (WiFi.status() != WL_CONNECTED) {
-    return StatusLedPattern::SlowBlink;
-  }
-  if (!distanceSensorReady || !ambientSensorReady || !doughSensorReady ||
-      isnan(lastDoughTemperatureC) || !recipeConfigReady || !ntpReadyReported) {
-    return StatusLedPattern::DoubleBlink;
-  }
-  return StatusLedPattern::Heartbeat;
+  return {StatusLedPattern::Heartbeat, 0, 10, 24};
 }
 
 void updateStatusLed() {
   if (!statusLedAvailable) {
     return;
   }
-  const StatusLedPattern pattern = currentStatusLedPattern();
-  setStatusLed(patternLevel(pattern, millis()));
+  const StatusLedState state = currentStatusLedState();
+  setStatusLed(patternLevel(state.pattern, millis()), state.red, state.green,
+               state.blue);
+}
+
+void showOneShotReadingLed() {
+  // Keep the LED green for the duration of the synchronous test acquisition.
+  setStatusLed(true, 0, 24, 0);
 }
 
 bool mountLittleFsSafely() {
@@ -751,18 +773,20 @@ void serviceConnectivity() {
       ntpConfigured = false;
     }
     if (!webInterface.running()) {
-      const bool mdnsReady = webInterface.begin();
-      emitEvent("status", "WEB_INTERFACE_READY");
-      if (!mdnsReady) {
-        emitEvent("error", "MDNS_START_FAILED");
+      const bool webReady = webInterface.begin();
+      if (webReady) {
+        emitEvent("status", "WEB_INTERFACE_READY");
+        if (!webInterface.mdnsReady()) {
+          emitEvent("error", "MDNS_START_FAILED");
+        }
+        Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"web_ready\",\"device_id\":\""));
+        Serial.print(deviceId);
+        Serial.print(F("\",\"url\":\"http://"));
+        Serial.print(WiFi.localIP());
+        Serial.print(F("\",\"mdns_url\":\"http://"));
+        Serial.print(Config::WEB_HOSTNAME);
+        Serial.println(F(".local\"}"));
       }
-      Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"web_ready\",\"device_id\":\""));
-      Serial.print(deviceId);
-      Serial.print(F("\",\"url\":\"http://"));
-      Serial.print(WiFi.localIP());
-      Serial.print(F("\",\"mdns_url\":\"http://"));
-      Serial.print(Config::WEB_HOSTNAME);
-      Serial.println(F(".local\"}"));
     }
     if (!ntpConfigured) {
       configTzTime(Config::TIMEZONE, Config::NTP_SERVER_1,
@@ -1127,8 +1151,9 @@ void startSession() {
   sessionStartMs = millis();
   sessionActive = true;
   emitSessionStart(startTimestamp, isoTimestamp);
-  emitMeasurement();
-  lastReadingMs = millis();
+  // Defer the first measurement to the main loop so the HTTP toggle handler
+  // returns quickly and the web UI doesn't see intermittent network errors.
+  lastReadingMs = millis() - sessionReadingIntervalSeconds * 1000UL;
 }
 
 void stopSession() {
@@ -1374,6 +1399,7 @@ String webStatusJson() {
 }
 
 String webTestJson() {
+  showOneShotReadingLed();
   const time_t timestamp = time(nullptr);
   char isoTimestamp[40] = {};
   const bool timeValid =
@@ -1433,11 +1459,12 @@ String webTestJson() {
   json += F(",\"distance_status\":\"");
   json += distanceStatus;
   json += F("\"}");
+  updateStatusLed();
   return json;
 }
 
 String toggleSessionFromWeb() {
-  toggleSession();
+  webToggleRequested = true;
   return webStatusJson();
 }
 
@@ -1542,12 +1569,19 @@ void loop() {
   if (telemetryQueueReady) {
     const InfluxUploadEvent uploadEvent = influxUploader.tick();
     if (uploadEvent == InfluxUploadEvent::Sent) {
+      influxFailureActive = false;
       emitEvent("status", "INFLUX_BATCH_SENT");
     } else if (uploadEvent == InfluxUploadEvent::Failed) {
+      influxFailureActive = true;
       emitEvent("error", "INFLUX_SEND_FAILED");
     } else if (uploadEvent == InfluxUploadEvent::ConfigurationMissing) {
+      influxFailureActive = true;
       emitEvent("error", "INFLUX_CONFIGURATION_MISSING");
     }
+  }
+  if (webToggleRequested) {
+    webToggleRequested = false;
+    toggleSession();
   }
   updateStatusLed();
   delay(2);

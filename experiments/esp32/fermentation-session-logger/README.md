@@ -5,6 +5,20 @@ misura viene salvata localmente su LittleFS prima di essere inviata
 a InfluxDB 2.x; indisponibilita' temporanee di Wi-Fi, NAS o InfluxDB non causano
 la perdita dell'arretrato.
 
+## Stato del progetto
+
+Questo e' il software del primo prototipo FermentLab, pensato per sviluppo e
+prove in rete locale e non ancora come release di produzione. InfluxDB 2.x puo'
+essere eseguito su un PC, per esempio tramite Docker, oppure su un NAS sempre
+acceso. Il firmware associa il NAS alla rete Wi-Fi di casa e il PC alle altre
+reti configurate, mantenendo localmente le misure quando il server selezionato
+non e' disponibile.
+
+Durante una sessione il PC deve restare operativo, anche se il monitor puo'
+essere spento. LittleFS ha capacita' limitata: la gestione automatica dello
+spazio e la manutenzione dall'interfaccia web sono ancora attivita' previste
+per le successive iterazioni del prototipo.
+
 ## Hardware
 
 | Funzione | ESP32 classico | Waveshare ESP32-S3-Zero |
@@ -19,6 +33,12 @@ Il profilo hardware viene selezionato in compilazione. Sul profilo ESP32
 classico GPIO4 resta libero; sul profilo S3-Zero viene usato dal DS18B20.
 GPIO0 (BOOT), GPIO19/20 (USB) e GPIO21 (LED RGB) non vengono usati per i
 sensori sullo S3-Zero.
+
+Sul LED RGB dello S3-Zero un breve heartbeat azzurro indica il sistema pronto
+e inattivo; un lampeggio arancione lento indica una sessione attiva; un
+lampeggio rosso rapido segnala un errore; il verde resta acceso durante una
+lettura di test una tantum. Sul LED monocromatico del profilo classico restano
+distinguibili le stesse cadenze senza la codifica cromatica.
 
 ## Wi-Fi e InfluxDB
 
@@ -39,6 +59,10 @@ organization e bucket. La configurazione attesa e':
 
 Il token non viene stampato nei log. `include/secrets.h` e' ignorato da Git;
 nel repository rimane soltanto `include/secrets.example.h` con placeholder.
+Sulla rete indicata da `INFLUX_HOME_WIFI_SSID` viene usato il profilo NAS;
+sulle altre reti viene usato il profilo PC. Se il profilo selezionato non e'
+raggiungibile, le misure restano nella coda persistente senza tentare endpoint
+appartenenti a un'altra rete.
 
 ## Coda persistente e recupero
 

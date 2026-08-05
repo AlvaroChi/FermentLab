@@ -146,6 +146,7 @@ constexpr size_t CONFIG_BACKUP_MAX_BYTES = 64 * 1024;
 
 constexpr uint16_t WEB_SERVER_PORT = 80;
 constexpr char WEB_HOSTNAME[] = "fermentlab";
+constexpr uint32_t WEB_SERVER_RETRY_INTERVAL_MS = 1000;
 
 // Physical distance from the enclosure datum to the inner vessel bottom.
 // The optical bottom reading is deliberately not used because the curved or

@@ -148,27 +148,13 @@ InfluxUploadEvent InfluxUploader::tick() {
     return InfluxUploadEvent::Failed;
   }
 
-  const bool preferNas = connectedToHomeSsid();
-  const InfluxProfileConfig& primary = preferNas ? NAS_PROFILE : PC_PROFILE;
-  const InfluxProfileConfig& secondary = preferNas ? PC_PROFILE : NAS_PROFILE;
-
-  bool uploadSucceeded = false;
-  lastHttpCode_ = 0;
-
-  if (profileConfigured(primary)) {
-    lastHttpCode_ = postToProfile(segment, bytes, primary);
-    uploadSucceeded = lastHttpCode_ >= 200 && lastHttpCode_ < 300;
-  }
-
-  if (!uploadSucceeded && profileConfigured(secondary)) {
-    const int secondaryCode = postToProfile(segment, bytes, secondary);
-    if (secondaryCode >= 200 && secondaryCode < 300) {
-      lastHttpCode_ = secondaryCode;
-      uploadSucceeded = true;
-    } else if (lastHttpCode_ == 0) {
-      lastHttpCode_ = secondaryCode;
-    }
-  }
+  const InfluxProfileConfig& selectedProfile =
+      connectedToHomeSsid() ? NAS_PROFILE : PC_PROFILE;
+  lastHttpCode_ = profileConfigured(selectedProfile)
+                      ? postToProfile(segment, bytes, selectedProfile)
+                      : 0;
+  const bool uploadSucceeded =
+      lastHttpCode_ >= 200 && lastHttpCode_ < 300;
 
   segment.close();
 

@@ -14,7 +14,8 @@
 // #define WIFI_PASSWORD_5 "YOUR_FIFTH_WIFI_PASSWORD"
 
 // SSID considered as "home" for Influx preference. If connected to this
-// network, NAS is tried first; otherwise PC is tried first.
+// network, NAS is used; otherwise PC is used. The persistent queue retains
+// measurements when the selected endpoint is temporarily unavailable.
 #define INFLUX_HOME_WIFI_SSID WIFI_SSID
 
 // NAS profile
@@ -30,5 +31,5 @@
 #define INFLUX_PC_BUCKET "fermentlab"
 
 // Runtime logic in firmware:
-// - if current SSID == INFLUX_HOME_WIFI_SSID: try NAS, then fallback to PC
-// - otherwise: try PC, then fallback to NAS
+// - if current SSID == INFLUX_HOME_WIFI_SSID: use NAS
+// - otherwise: use PC

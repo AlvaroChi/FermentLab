@@ -5,6 +5,13 @@
 
 #include <functional>
 
+class ObservableWebServer : public WebServer {
+ public:
+  explicit ObservableWebServer(uint16_t port) : WebServer(port) {}
+
+  bool listening() { return static_cast<bool>(_server); }
+};
+
 class WebInterface {
  public:
   using JsonHandler = std::function<String()>;
@@ -24,14 +31,15 @@ class WebInterface {
   bool begin();
   void stop();
   void tick();
-  bool running() const { return running_; }
+  bool running();
+  bool mdnsReady() const { return mdnsReady_; }
 
  private:
   void configureRoutes();
   void sendJson(const JsonHandler& handler);
   void sendJsonBody(const JsonBodyHandler& handler);
 
-  WebServer server_;
+  ObservableWebServer server_;
   JsonHandler statusHandler_;
   JsonHandler testHandler_;
   JsonHandler toggleHandler_;
@@ -45,4 +53,6 @@ class WebInterface {
   JsonBodyHandler importHandler_;
   bool routesConfigured_ = false;
   bool running_ = false;
+  bool mdnsReady_ = false;
+  uint32_t nextStartAttemptMs_ = 0;
 };
