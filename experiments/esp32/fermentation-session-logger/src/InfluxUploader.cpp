@@ -86,7 +86,7 @@ InfluxUploadEvent InfluxUploader::tick() {
     lastHttpCode_ = 0;
     return InfluxUploadEvent::Failed;
   }
-  http.addHeader("Authorization", String("Token ") + INFLUXDB_TOKEN);
+  http.addHeader("Authorization", String("Token ") + INFLUX_TOKEN);
   http.addHeader("Content-Type", "text/plain; charset=utf-8");
   http.addHeader("Accept", "application/json");
   lastHttpCode_ = http.sendRequest("POST", &segment, bytes);
@@ -106,20 +106,22 @@ InfluxUploadEvent InfluxUploader::tick() {
 }
 
 bool InfluxUploader::configurationAvailable() const {
-  return !isPlaceholder(INFLUXDB_URL, "http://192.168.x.x:8086") &&
-         !isPlaceholder(INFLUXDB_TOKEN, "YOUR_INFLUXDB_TOKEN") &&
-         INFLUXDB_ORG[0] != '\0' && INFLUXDB_BUCKET[0] != '\0';
+    return !isPlaceholder(INFLUX_URL, "http://192.168.x.x:8086") &&
+      !isPlaceholder(INFLUX_TOKEN, "YOUR_INFLUXDB_TOKEN") &&
+  !isPlaceholder(INFLUX_TOKEN, "YOUR_NAS_INFLUX_TOKEN") &&
+  !isPlaceholder(INFLUX_TOKEN, "YOUR_PC_INFLUX_TOKEN") &&
+      INFLUX_ORG[0] != '\0' && INFLUX_BUCKET[0] != '\0';
 }
 
 String InfluxUploader::writeEndpoint() const {
-  String endpoint(INFLUXDB_URL);
+  String endpoint(INFLUX_URL);
   while (endpoint.endsWith("/")) {
     endpoint.remove(endpoint.length() - 1);
   }
   endpoint += "/api/v2/write?org=";
-  endpoint += urlEncode(INFLUXDB_ORG);
+  endpoint += urlEncode(INFLUX_ORG);
   endpoint += "&bucket=";
-  endpoint += urlEncode(INFLUXDB_BUCKET);
+  endpoint += urlEncode(INFLUX_BUCKET);
   endpoint += "&precision=s";
   return endpoint;
 }
