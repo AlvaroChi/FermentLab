@@ -20,7 +20,6 @@ class InfluxUploader {
 
  private:
   bool configurationAvailable() const;
-  String writeEndpoint() const;
   void scheduleFailure(uint32_t now);
 
   PersistentQueue* queue_ = nullptr;

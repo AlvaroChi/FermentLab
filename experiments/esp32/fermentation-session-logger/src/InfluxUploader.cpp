@@ -11,6 +11,25 @@
 
 namespace {
 
+#ifndef INFLUX_HOME_WIFI_SSID
+#define INFLUX_HOME_WIFI_SSID WIFI_SSID
+#endif
+
+struct InfluxProfileConfig {
+  const char* name;
+  const char* url;
+  const char* token;
+  const char* org;
+  const char* bucket;
+};
+
+const InfluxProfileConfig NAS_PROFILE = {
+    "NAS", INFLUX_NAS_URL, INFLUX_NAS_TOKEN, INFLUX_NAS_ORG,
+    INFLUX_NAS_BUCKET};
+
+const InfluxProfileConfig PC_PROFILE = {
+    "PC", INFLUX_PC_URL, INFLUX_PC_TOKEN, INFLUX_PC_ORG, INFLUX_PC_BUCKET};
+
 String urlEncode(const char* value) {
   static constexpr char hex[] = "0123456789ABCDEF";
   String encoded;
@@ -35,6 +54,59 @@ String urlEncode(const char* value) {
 bool isPlaceholder(const char* value, const char* placeholder) {
   return value == nullptr || value[0] == '\0' ||
          std::strcmp(value, placeholder) == 0;
+}
+
+bool tokenPlaceholder(const char* token) {
+  return isPlaceholder(token, "YOUR_INFLUXDB_TOKEN") ||
+         isPlaceholder(token, "YOUR_NAS_INFLUX_TOKEN") ||
+         isPlaceholder(token, "YOUR_PC_INFLUX_TOKEN");
+}
+
+bool profileConfigured(const InfluxProfileConfig& profile) {
+  return !isPlaceholder(profile.url, "http://192.168.x.x:8086") &&
+         !tokenPlaceholder(profile.token) && profile.org != nullptr &&
+         profile.bucket != nullptr && profile.org[0] != '\0' &&
+         profile.bucket[0] != '\0';
+}
+
+bool connectedToHomeSsid() {
+  const String currentSsid = WiFi.SSID();
+  return currentSsid.length() > 0 &&
+         std::strcmp(currentSsid.c_str(), INFLUX_HOME_WIFI_SSID) == 0;
+}
+
+String buildWriteEndpoint(const InfluxProfileConfig& profile) {
+  String endpoint(profile.url);
+  while (endpoint.endsWith("/")) {
+    endpoint.remove(endpoint.length() - 1);
+  }
+  endpoint += "/api/v2/write?org=";
+  endpoint += urlEncode(profile.org);
+  endpoint += "&bucket=";
+  endpoint += urlEncode(profile.bucket);
+  endpoint += "&precision=s";
+  return endpoint;
+}
+
+int postToProfile(File& segment, size_t bytes,
+                  const InfluxProfileConfig& profile) {
+  if (!segment.seek(0)) {
+    return 0;
+  }
+
+  WiFiClient client;
+  HTTPClient http;
+  http.setConnectTimeout(Config::INFLUX_HTTP_TIMEOUT_MS);
+  http.setTimeout(Config::INFLUX_HTTP_TIMEOUT_MS);
+  if (!http.begin(client, buildWriteEndpoint(profile))) {
+    return 0;
+  }
+  http.addHeader("Authorization", String("Token ") + profile.token);
+  http.addHeader("Content-Type", "text/plain; charset=utf-8");
+  http.addHeader("Accept", "application/json");
+  const int httpCode = http.sendRequest("POST", &segment, bytes);
+  http.end();
+  return httpCode;
 }
 
 }  // namespace
@@ -76,25 +148,31 @@ InfluxUploadEvent InfluxUploader::tick() {
     return InfluxUploadEvent::Failed;
   }
 
-  WiFiClient client;
-  HTTPClient http;
-  http.setConnectTimeout(Config::INFLUX_HTTP_TIMEOUT_MS);
-  http.setTimeout(Config::INFLUX_HTTP_TIMEOUT_MS);
-  if (!http.begin(client, writeEndpoint())) {
-    segment.close();
-    scheduleFailure(now);
-    lastHttpCode_ = 0;
-    return InfluxUploadEvent::Failed;
-  }
-  http.addHeader("Authorization", String("Token ") + INFLUX_TOKEN);
-  http.addHeader("Content-Type", "text/plain; charset=utf-8");
-  http.addHeader("Accept", "application/json");
-  lastHttpCode_ = http.sendRequest("POST", &segment, bytes);
-  segment.close();
-  http.end();
+  const bool preferNas = connectedToHomeSsid();
+  const InfluxProfileConfig& primary = preferNas ? NAS_PROFILE : PC_PROFILE;
+  const InfluxProfileConfig& secondary = preferNas ? PC_PROFILE : NAS_PROFILE;
 
-  if (lastHttpCode_ >= 200 && lastHttpCode_ < 300 &&
-      queue_->remove(path.c_str())) {
+  bool uploadSucceeded = false;
+  lastHttpCode_ = 0;
+
+  if (profileConfigured(primary)) {
+    lastHttpCode_ = postToProfile(segment, bytes, primary);
+    uploadSucceeded = lastHttpCode_ >= 200 && lastHttpCode_ < 300;
+  }
+
+  if (!uploadSucceeded && profileConfigured(secondary)) {
+    const int secondaryCode = postToProfile(segment, bytes, secondary);
+    if (secondaryCode >= 200 && secondaryCode < 300) {
+      lastHttpCode_ = secondaryCode;
+      uploadSucceeded = true;
+    } else if (lastHttpCode_ == 0) {
+      lastHttpCode_ = secondaryCode;
+    }
+  }
+
+  segment.close();
+
+  if (uploadSucceeded && queue_->remove(path.c_str())) {
     lastUploadedBytes_ = bytes;
     retryDelayMs_ = Config::INFLUX_RETRY_INITIAL_MS;
     nextAttemptMs_ = now + Config::INFLUX_SUCCESS_PAUSE_MS;
@@ -106,24 +184,7 @@ InfluxUploadEvent InfluxUploader::tick() {
 }
 
 bool InfluxUploader::configurationAvailable() const {
-    return !isPlaceholder(INFLUX_URL, "http://192.168.x.x:8086") &&
-      !isPlaceholder(INFLUX_TOKEN, "YOUR_INFLUXDB_TOKEN") &&
-  !isPlaceholder(INFLUX_TOKEN, "YOUR_NAS_INFLUX_TOKEN") &&
-  !isPlaceholder(INFLUX_TOKEN, "YOUR_PC_INFLUX_TOKEN") &&
-      INFLUX_ORG[0] != '\0' && INFLUX_BUCKET[0] != '\0';
-}
-
-String InfluxUploader::writeEndpoint() const {
-  String endpoint(INFLUX_URL);
-  while (endpoint.endsWith("/")) {
-    endpoint.remove(endpoint.length() - 1);
-  }
-  endpoint += "/api/v2/write?org=";
-  endpoint += urlEncode(INFLUX_ORG);
-  endpoint += "&bucket=";
-  endpoint += urlEncode(INFLUX_BUCKET);
-  endpoint += "&precision=s";
-  return endpoint;
+  return profileConfigured(NAS_PROFILE) || profileConfigured(PC_PROFILE);
 }
 
 void InfluxUploader::scheduleFailure(uint32_t now) {

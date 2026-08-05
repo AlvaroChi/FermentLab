@@ -13,9 +13,9 @@
 // #define WIFI_SSID_5 "YOUR_FIFTH_WIFI_SSID"
 // #define WIFI_PASSWORD_5 "YOUR_FIFTH_WIFI_PASSWORD"
 
-// InfluxDB profile selection (choose one)
-#define INFLUX_PROFILE_NAS
-// #define INFLUX_PROFILE_PC
+// SSID considered as "home" for Influx preference. If connected to this
+// network, NAS is tried first; otherwise PC is tried first.
+#define INFLUX_HOME_WIFI_SSID WIFI_SSID
 
 // NAS profile
 #define INFLUX_NAS_URL "http://192.168.x.x:8086"
@@ -29,24 +29,6 @@
 #define INFLUX_PC_ORG "FermentLab"
 #define INFLUX_PC_BUCKET "fermentlab"
 
-#if defined(INFLUX_PROFILE_NAS) && defined(INFLUX_PROFILE_PC)
-#error "Select only one Influx profile: INFLUX_PROFILE_NAS or INFLUX_PROFILE_PC"
-#elif defined(INFLUX_PROFILE_NAS)
-#define INFLUX_URL    INFLUX_NAS_URL
-#define INFLUX_TOKEN  INFLUX_NAS_TOKEN
-#define INFLUX_ORG    INFLUX_NAS_ORG
-#define INFLUX_BUCKET INFLUX_NAS_BUCKET
-#elif defined(INFLUX_PROFILE_PC)
-#define INFLUX_URL    INFLUX_PC_URL
-#define INFLUX_TOKEN  INFLUX_PC_TOKEN
-#define INFLUX_ORG    INFLUX_PC_ORG
-#define INFLUX_BUCKET INFLUX_PC_BUCKET
-#else
-#error "Define one active Influx profile: INFLUX_PROFILE_NAS or INFLUX_PROFILE_PC"
-#endif
-
-// Backward compatibility aliases
-#define INFLUXDB_URL    INFLUX_URL
-#define INFLUXDB_TOKEN  INFLUX_TOKEN
-#define INFLUXDB_ORG    INFLUX_ORG
-#define INFLUXDB_BUCKET INFLUX_BUCKET
+// Runtime logic in firmware:
+// - if current SSID == INFLUX_HOME_WIFI_SSID: try NAS, then fallback to PC
+// - otherwise: try PC, then fallback to NAS
