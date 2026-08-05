@@ -12,18 +12,48 @@ constexpr char BOARD_PROFILE[] = "ESP32_CLASSIC";
 constexpr uint8_t SDA_PIN = 21;
 constexpr uint8_t SCL_PIN = 22;
 constexpr uint8_t DS18B20_PIN = 27;
+#if defined(FERMENTLAB_STATUS_LED_PIN)
+constexpr int8_t STATUS_LED_PIN = FERMENTLAB_STATUS_LED_PIN;
+#else
+constexpr int8_t STATUS_LED_PIN = 2;
+#endif
 #elif defined(FERMENTLAB_BOARD_S3_ZERO)
 constexpr char BOARD_PROFILE[] = "WAVESHARE_ESP32_S3_ZERO";
 constexpr uint8_t SDA_PIN = 1;
 constexpr uint8_t SCL_PIN = 2;
 constexpr uint8_t DS18B20_PIN = 4;
+#if defined(FERMENTLAB_STATUS_LED_PIN)
+constexpr int8_t STATUS_LED_PIN = FERMENTLAB_STATUS_LED_PIN;
+#else
+constexpr int8_t STATUS_LED_PIN = 21;
+#endif
 #else
 #error "No FermentLab board profile selected by PlatformIO"
+#endif
+
+#if defined(FERMENTLAB_STATUS_LED_ACTIVE_HIGH)
+constexpr bool STATUS_LED_ACTIVE_HIGH = FERMENTLAB_STATUS_LED_ACTIVE_HIGH != 0;
+#else
+constexpr bool STATUS_LED_ACTIVE_HIGH = true;
+#endif
+
+#if defined(FERMENTLAB_STATUS_LED_IS_NEOPIXEL)
+constexpr bool STATUS_LED_IS_NEOPIXEL =
+    FERMENTLAB_STATUS_LED_IS_NEOPIXEL != 0;
+#elif defined(FERMENTLAB_BOARD_S3_ZERO)
+constexpr bool STATUS_LED_IS_NEOPIXEL = true;
+#else
+constexpr bool STATUS_LED_IS_NEOPIXEL = false;
 #endif
 
 static_assert(SDA_PIN != SCL_PIN && SDA_PIN != DS18B20_PIN &&
                   SCL_PIN != DS18B20_PIN,
               "Sensor pins must be unique");
+static_assert(STATUS_LED_PIN < 0 ||
+                  (STATUS_LED_PIN != static_cast<int8_t>(SDA_PIN) &&
+                   STATUS_LED_PIN != static_cast<int8_t>(SCL_PIN) &&
+                   STATUS_LED_PIN != static_cast<int8_t>(DS18B20_PIN)),
+              "Status LED pin conflicts with sensor pins");
 
 constexpr uint8_t DS18B20_RESOLUTION_BITS = 12;
 constexpr uint32_t DS18B20_CONVERSION_MS = 750;

@@ -112,6 +112,17 @@ bool i2cBusValid = false;
 bool i2cDistancePresent = false;
 bool i2cAmbientPresent = false;
 char i2cAddressSummary[192] = "non ancora scansionato";
+bool statusLedAvailable = false;
+bool statusLedOn = false;
+
+enum class StatusLedPattern : uint8_t {
+  Off,
+  Solid,
+  FastBlink,
+  SlowBlink,
+  DoubleBlink,
+  Heartbeat,
+};
 
 enum class DistanceInvalidReason : uint8_t {
   None,
@@ -186,6 +197,93 @@ void emitEvent(const char* type, const char* code) {
   Serial.print(F("\",\"code\":\""));
   Serial.print(code);
   Serial.println(F("\"}"));
+}
+
+void writeStatusLedRaw(bool on, uint8_t red = 0, uint8_t green = 0,
+                       uint8_t blue = 0) {
+  if (!statusLedAvailable) {
+    return;
+  }
+  if (Config::STATUS_LED_IS_NEOPIXEL) {
+    if (on) {
+      neopixelWrite(Config::STATUS_LED_PIN, red, green, blue);
+    } else {
+      neopixelWrite(Config::STATUS_LED_PIN, 0, 0, 0);
+    }
+    return;
+  }
+  const uint8_t level =
+      on == Config::STATUS_LED_ACTIVE_HIGH ? HIGH : LOW;
+  digitalWrite(Config::STATUS_LED_PIN, level);
+}
+
+void setStatusLed(bool on) {
+  if (!statusLedAvailable || statusLedOn == on) {
+    return;
+  }
+  statusLedOn = on;
+  if (on) {
+    // Low brightness to avoid glare on standalone setups.
+    writeStatusLedRaw(true, 0, 10, 24);
+  } else {
+    writeStatusLedRaw(false);
+  }
+}
+
+void initializeStatusLed() {
+  if (Config::STATUS_LED_PIN < 0) {
+    statusLedAvailable = false;
+    return;
+  }
+  if (!Config::STATUS_LED_IS_NEOPIXEL) {
+    pinMode(Config::STATUS_LED_PIN, OUTPUT);
+  }
+  statusLedAvailable = true;
+  writeStatusLedRaw(false);
+}
+
+bool patternLevel(StatusLedPattern pattern, uint32_t nowMs) {
+  const uint32_t phaseMs = nowMs % 2000UL;
+  switch (pattern) {
+    case StatusLedPattern::Off:
+      return false;
+    case StatusLedPattern::Solid:
+      return true;
+    case StatusLedPattern::FastBlink:
+      return (phaseMs % 200UL) < 100UL;
+    case StatusLedPattern::SlowBlink:
+      return phaseMs < 700UL;
+    case StatusLedPattern::DoubleBlink:
+      return phaseMs < 120UL || (phaseMs >= 260UL && phaseMs < 380UL);
+    case StatusLedPattern::Heartbeat:
+      return phaseMs < 70UL;
+  }
+  return false;
+}
+
+StatusLedPattern currentStatusLedPattern() {
+  if (!storageReady || !telemetryQueueReady) {
+    return StatusLedPattern::FastBlink;
+  }
+  if (sessionActive) {
+    return StatusLedPattern::Solid;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    return StatusLedPattern::SlowBlink;
+  }
+  if (!distanceSensorReady || !ambientSensorReady || !doughSensorReady ||
+      isnan(lastDoughTemperatureC) || !recipeConfigReady || !ntpReadyReported) {
+    return StatusLedPattern::DoubleBlink;
+  }
+  return StatusLedPattern::Heartbeat;
+}
+
+void updateStatusLed() {
+  if (!statusLedAvailable) {
+    return;
+  }
+  const StatusLedPattern pattern = currentStatusLedPattern();
+  setStatusLed(patternLevel(pattern, millis()));
 }
 
 bool mountLittleFsSafely() {
@@ -1373,6 +1471,8 @@ void setup() {
   Serial.begin(Config::SERIAL_BAUD);
   delay(Config::STARTUP_UPLOAD_GRACE_MS);
 
+  initializeStatusLed();
+
   initializeDeviceId();
   storageReady = mountLittleFsSafely();
   emitEvent(storageReady ? "status" : "error",
@@ -1449,5 +1549,6 @@ void loop() {
       emitEvent("error", "INFLUX_CONFIGURATION_MISSING");
     }
   }
+  updateStatusLed();
   delay(2);
 }
