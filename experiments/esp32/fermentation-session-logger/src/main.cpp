@@ -12,8 +12,6 @@
 #include <cstring>
 #include <time.h>
 
-#include <ArduinoJson.h>
-
 #include "Config.h"
 #include "InfluxUploader.h"
 #include "PersistentQueue.h"
@@ -1487,47 +1485,6 @@ String webStatusJson() {
   json += recipeConfigReady
               ? jsonFloatValue(sessionConfigStore.draftHydrationPercent(), 1)
               : String("null");
-  json += F(",\"draft_total_flour_g\":");
-  json += F("null");
-  json += F(",\"draft_salt_pct\":");
-  json += F("null");
-  json += F(",\"draft_yeast_type\":");
-  json += F("null");
-  json += F(",\"draft_yeast_pct\":");
-  json += F("null");
-  json += F(",\"draft_autolyse\":");
-  json += F("null");
-  json += F(",\"draft_autolyse_min\":");
-  json += F("null");
-  json += F(",\"draft_initial_dough_mass_g\":");
-  json += F("null");
-  json += F(",\"draft_preset_id\":");
-  json += F("null");
-  if (recipeConfigReady) {
-    JsonDocument draftDocument;
-    if (!deserializeJson(draftDocument, sessionConfigStore.draftJson())) {
-      json += F(",\"draft_total_flour_g\":");
-      json += jsonFloatValue(draftDocument["total_flour_g"] | NAN, 1);
-      json += F(",\"draft_salt_pct\":");
-      json += jsonFloatValue(draftDocument["salt_pct"] | NAN, 2);
-      json += F(",\"draft_yeast_type\":");
-      appendJsonString(json, String(draftDocument["yeast_type"] | ""));
-      json += F(",\"draft_yeast_pct\":");
-      json += jsonFloatValue(draftDocument["yeast_pct"] | NAN, 3);
-      json += F(",\"draft_autolyse\":");
-      if (draftDocument["autolyse"].is<bool>()) {
-        json += draftDocument["autolyse"].as<bool>() ? F("true") : F("false");
-      } else {
-        json += F("null");
-      }
-      json += F(",\"draft_autolyse_min\":");
-      json += jsonFloatValue(draftDocument["autolyse_min"] | NAN, 0);
-      json += F(",\"draft_initial_dough_mass_g\":");
-      json += jsonFloatValue(draftDocument["initial_dough_mass_g"] | NAN, 1);
-      json += F(",\"draft_preset_id\":");
-      appendJsonString(json, String(draftDocument["preset_id"] | ""));
-    }
-  }
   json += '}';
   return json;
 }
