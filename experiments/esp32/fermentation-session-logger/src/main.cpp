@@ -1600,7 +1600,7 @@ String webTestJson() {
 
 String toggleSessionFromWeb() {
   webToggleRequested = true;
-  return webStatusJson();
+  return F("{\"ok\":true,\"queued\":true}");
 }
 
 String configurationLockedJson() {
