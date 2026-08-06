@@ -1556,8 +1556,12 @@ String webTestJson() {
 }
 
 String toggleSessionFromWeb() {
+  const bool alreadyPending = webToggleRequested;
   webToggleRequested = true;
-  return webStatusJson();
+  String response = F("{\"ok\":true,\"queued\":true,\"already_pending\":");
+  response += alreadyPending ? F("true") : F("false");
+  response += F("}");
+  return response;
 }
 
 String configurationLockedJson() {
