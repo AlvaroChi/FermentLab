@@ -58,6 +58,56 @@ const WifiCredential WIFI_CREDENTIALS[] = {
 constexpr size_t WIFI_CREDENTIAL_COUNT =
     sizeof(WIFI_CREDENTIALS) / sizeof(WIFI_CREDENTIALS[0]);
 
+class StringPrint : public Print {
+ public:
+  size_t write(uint8_t value) override {
+    buffer += static_cast<char>(value);
+    return 1;
+  }
+
+  String buffer;
+};
+
+void appendInfluxEscapedTag(String& output, const char* value) {
+  while (*value != '\0') {
+    if (*value == ' ' || *value == ',' || *value == '=' || *value == '\\') {
+      output += '\\';
+    }
+    output += *value++;
+  }
+}
+
+void appendInfluxIntegerField(String& output, const char* key, uint32_t value,
+                              bool& hasField) {
+  output += hasField ? ',' : ' ';
+  output += key;
+  output += '=';
+  output += String(value);
+  output += 'i';
+  hasField = true;
+}
+
+void appendInfluxStringField(String& output, const char* key,
+                             const String& value, bool& hasField) {
+  output += hasField ? ',' : ' ';
+  output += key;
+  output += '=';
+  output += '"';
+  for (size_t index = 0; index < value.length(); ++index) {
+    const char current = value[index];
+    if (current == '\\' || current == '"') {
+      output += '\\';
+    }
+    if (current == '\n' || current == '\r') {
+      output += ' ';
+      continue;
+    }
+    output += current;
+  }
+  output += '"';
+  hasField = true;
+}
+
 VL53L0X distanceSensor;
 OneWire doughOneWire(Config::DS18B20_PIN);
 DallasTemperature doughSensor(&doughOneWire);
@@ -948,10 +998,52 @@ void writeSessionStart(Print& output, time_t timestamp,
   output.println(F("}"));
 }
 
+String buildSessionStartLineProtocol(time_t timestamp, const char* isoTimestamp) {
+  StringPrint recipeOutput;
+  String recipeJson;
+  if (sessionConfigStore.writeRecipeSnapshot(recipeOutput)) {
+    recipeJson = recipeOutput.buffer;
+  }
+
+  String line;
+  line.reserve(768);
+  line += F("session_start,device_id=");
+  appendInfluxEscapedTag(line, deviceId);
+  line += F(",session_id=");
+  appendInfluxEscapedTag(line, sessionId);
+
+  bool hasField = false;
+  appendInfluxStringField(line, "schema", String("fermentlab.session.v1"),
+                         hasField);
+  appendInfluxStringField(line, "type", String("session_start"), hasField);
+  appendInfluxStringField(line, "timestamp", String(isoTimestamp), hasField);
+  appendInfluxIntegerField(line, "epoch_s", static_cast<uint32_t>(timestamp),
+                           hasField);
+  appendInfluxStringField(line, "timezone", String("Europe/Rome"), hasField);
+  appendInfluxIntegerField(line, "interval_s", sessionReadingIntervalSeconds,
+                           hasField);
+  if (recipeJson.length() > 0) {
+    appendInfluxStringField(line, "recipe", recipeJson, hasField);
+  }
+  return line;
+}
+
+void emitSessionStartToInflux(time_t timestamp, const char* isoTimestamp) {
+  if (!telemetryQueueReady) {
+    emitEvent("error", "SESSION_START_QUEUE_NOT_READY");
+    return;
+  }
+  if (!telemetryQueue.enqueue(buildSessionStartLineProtocol(timestamp,
+                                                           isoTimestamp))) {
+    emitEvent("error", "SESSION_START_QUEUE_WRITE_FAILED");
+  }
+}
+
 void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
   writeSessionStart(Serial, timestamp, isoTimestamp);
   writeSessionStart(sessionFile, timestamp, isoTimestamp);
   sessionFile.flush();
+  emitSessionStartToInflux(timestamp, isoTimestamp);
 }
 
 void emitMeasurement() {
