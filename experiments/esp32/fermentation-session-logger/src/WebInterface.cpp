@@ -86,26 +86,109 @@ const char CONFIG_HTML[] PROGMEM = R"HTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Impasto e farine · FermentLab</title>
+  <title>Workflow Impasto · FermentLab</title>
   <style>
-    :root{color-scheme:dark;--bg:#101714;--panel:#18231e;--line:#2b3c33;--text:#f3f7f4;--muted:#a9b8af;--green:#52d68a;--red:#ff6b6b;--amber:#ffc857}
-    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#20372b 0,var(--bg) 48%);color:var(--text);font:15px/1.45 system-ui,sans-serif;min-height:100vh}
-    main{width:min(980px,calc(100% - 28px));margin:auto;padding:26px 0 60px}header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}h1{font-size:clamp(28px,6vw,44px);margin:0;letter-spacing:-.04em}h2{margin:0 0 5px}h3{margin:18px 0 8px}.eyebrow{color:var(--green);font-size:12px;font-weight:800;letter-spacing:.15em;text-transform:uppercase}
-    .panel{background:rgba(24,35,30,.94);border:1px solid var(--line);border-radius:20px;padding:20px;margin-bottom:16px;box-shadow:0 18px 50px #0004}.muted{color:var(--muted);font-size:13px}.notice{position:sticky;top:8px;z-index:5;border:1px solid #705d25;background:#332b16;border-radius:12px;padding:10px 13px;margin-bottom:14px;display:none}.notice.show{display:block}.notice.error{border-color:#873e3e;background:#351d1d}.lock{color:var(--amber);font-weight:700}
-    a,button{font:inherit;font-weight:750}a.back{color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 13px;text-decoration:none}button{border:0;border-radius:11px;background:var(--green);color:#102017;padding:10px 13px;cursor:pointer}button.secondary{background:#e8efe9;color:#152019}button.danger{background:var(--red);color:#2b0d0d}button:disabled,input:disabled,select:disabled,textarea:disabled{opacity:.48;cursor:not-allowed}input:read-only{opacity:.65;cursor:not-allowed}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.span2{grid-column:span 2}.full{grid-column:1/-1}label{display:block;color:var(--muted);font-size:12px;font-weight:700}input,select,textarea{display:block;width:100%;margin-top:5px;border:1px solid var(--line);border-radius:10px;background:#101814;color:var(--text);font:inherit;padding:10px}textarea{min-height:78px;resize:vertical}.check{display:flex;align-items:center;gap:8px;margin-top:22px;color:var(--text);font-size:14px}.check input{width:auto;margin:0}
-    .toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:9px;margin:14px 0}.toolbar .grow{flex:1;min-width:210px}.toolbar.prominent{align-items:center;background:#101814;border:1px solid var(--line);border-radius:12px;padding:10px 12px}.toolbar.prominent .hint{color:var(--muted);font-size:12px;margin-right:auto}.mix-row{display:grid;grid-template-columns:1fr 130px auto;gap:8px;align-items:end;margin-bottom:8px}.mix-row button{padding:10px 12px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:13px 0}.card{border:1px solid var(--line);border-radius:12px;background:#101814;padding:12px;text-align:left;color:var(--text)}.card.selected{border-color:var(--green)}.card small{display:block;color:var(--muted);margin-top:3px}.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:5px}.status-dot.unverified{background:var(--amber)}fieldset{border:0;padding:0;margin:0}.backup{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}.backup label{border:1px solid var(--line);border-radius:11px;padding:10px 13px;color:var(--text);cursor:pointer}.backup input{display:none}
-    @media(max-width:720px){header{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:1fr 1fr}.cards{grid-template-columns:1fr}.span2{grid-column:span 2}}@media(max-width:480px){.grid{grid-template-columns:1fr}.span2{grid-column:auto}.mix-row{grid-template-columns:1fr 90px auto}}
+    :root{color-scheme:dark;--bg:#0f1818;--bg2:#162429;--panel:#1a2a2f;--line:#2f464f;--text:#ecf2f5;--muted:#9bb0ba;--ok:#5dd39e;--danger:#ff7a7a;--warn:#f4bf67;--sky:#7ec8ff}
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(circle at 15% -20%,#2f5d5f 0,#162429 40%,#0f1818 75%);color:var(--text);font:15px/1.5 Segoe UI,system-ui,sans-serif;min-height:100vh}
+    main{width:min(1040px,calc(100% - 28px));margin:auto;padding:26px 0 60px}
+    header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:16px}
+    h1{font-size:clamp(30px,6vw,48px);margin:0;letter-spacing:-.03em}
+    h2{margin:0;font-size:22px;letter-spacing:-.02em}
+    h3{margin:18px 0 8px}
+    .eyebrow{color:var(--sky);font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+    .muted{color:var(--muted);font-size:13px}
+    .panel{background:linear-gradient(180deg,rgba(26,42,47,.96) 0,rgba(22,35,40,.96) 100%);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:14px;box-shadow:0 14px 36px #0005}
+    .workflow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+    .step{border:1px solid var(--line);border-radius:12px;padding:12px;background:#112024}
+    .step strong{display:block;font-size:13px;color:var(--sky);margin-bottom:2px}
+    .notice{position:sticky;top:8px;z-index:8;border:1px solid #80602e;background:#3a2b16;border-radius:12px;padding:10px 12px;margin-bottom:12px;display:none}
+    .notice.show{display:block}
+    .notice.error{border-color:#965151;background:#402222}
+    .lock{color:var(--warn);font-weight:700}
+    .status{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-size:12px;background:#101a1f;color:var(--muted)}
+    .pill.ok{border-color:#2f6a53;color:var(--ok)}
+    .pill.warn{border-color:#7a5d2f;color:var(--warn)}
+    .pill.info{border-color:#3f6476;color:var(--sky)}
+    a,button{font:inherit;font-weight:760}
+    a.back{color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 12px;text-decoration:none;background:#101a1f}
+    button{border:0;border-radius:11px;background:var(--ok);color:#102117;padding:10px 13px;cursor:pointer}
+    button.secondary{background:#dce8ee;color:#162229}
+    button.danger{background:var(--danger);color:#350f0f}
+    button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+    button:disabled,input:disabled,select:disabled,textarea:disabled{opacity:.45;cursor:not-allowed}
+    input:read-only{opacity:.65;cursor:not-allowed}
+    .toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:9px;margin:12px 0}
+    .toolbar .grow{flex:1;min-width:220px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .span2{grid-column:span 2}
+    .full{grid-column:1/-1}
+    label{display:block;color:var(--muted);font-size:12px;font-weight:700}
+    input,select,textarea{display:block;width:100%;margin-top:5px;border:1px solid var(--line);border-radius:10px;background:#101a1f;color:var(--text);font:inherit;padding:10px}
+    textarea{min-height:76px;resize:vertical}
+    .check{display:flex;align-items:center;gap:8px;margin-top:22px;color:var(--text);font-size:14px}
+    .check input{width:auto;margin:0}
+    .mix-row{display:grid;grid-template-columns:1fr 140px auto;gap:8px;align-items:end;margin-bottom:8px}
+    .mix-summary{margin-top:8px;font-size:12px;color:var(--muted)}
+    .mix-summary.error{color:var(--danger)}
+    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:12px 0}
+    .card{border:1px solid var(--line);border-radius:12px;background:#101a1f;padding:11px;text-align:left;color:var(--text)}
+    .card.selected{border-color:var(--ok)}
+    .card small{display:block;color:var(--muted);margin-top:3px}
+    .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px}
+    .status-dot.unverified{background:var(--warn)}
+    fieldset{border:0;padding:0;margin:0}
+    .backup{display:flex;flex-wrap:wrap;gap:9px;margin-top:12px}
+    .backup label{border:1px solid var(--line);border-radius:11px;padding:10px 12px;color:var(--text);cursor:pointer;background:#101a1f}
+    .backup input{display:none}
+    .divider{height:1px;background:var(--line);margin:14px 0}
+    .sticky-actions{position:sticky;bottom:10px;z-index:7;display:flex;flex-wrap:wrap;gap:9px;justify-content:space-between;align-items:center;border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:#0f1a1ee6;backdrop-filter:blur(6px)}
+    .sticky-actions .left{display:flex;gap:8px;align-items:center}
+    @media(max-width:820px){.workflow{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}.cards{grid-template-columns:1fr 1fr}}
+    @media(max-width:560px){header{flex-direction:column}.grid,.cards{grid-template-columns:1fr}.span2{grid-column:auto}.mix-row{grid-template-columns:1fr 105px auto}}
   </style>
 </head>
 <body><main>
-  <header><div><div class="eyebrow">Configurazione locale</div><h1>Impasto e farine</h1><div class="muted">I dati restano nella memoria LittleFS dell’ESP32.</div></div><a class="back" href="/">← Dashboard</a></header>
+  <header>
+    <div>
+      <div class="eyebrow">FermentLab workflow locale</div>
+      <h1>Configura il prossimo impasto</h1>
+      <div class="muted">Flusso guidato: scegli preset, applica, salva bozza e poi START da dashboard.</div>
+      <div class="workflow">
+        <div class="step"><strong>Step 1</strong>Seleziona o crea un preset in libreria.</div>
+        <div class="step"><strong>Step 2</strong>Applica il preset alla bozza e rifinisci i valori.</div>
+        <div class="step"><strong>Step 3</strong>Salva bozza: sara la fotografia usata allo START.</div>
+      </div>
+    </div>
+    <a class="back" href="/">← Dashboard</a>
+  </header>
   <div id="notice" class="notice"></div>
+  <div class="panel">
+    <h2>Stato configurazione</h2>
+    <div class="status">
+      <span id="sessionLockBadge" class="pill info">Sessione: controllo...</span>
+      <span id="draftState" class="pill warn">Bozza: da verificare</span>
+      <span id="presetState" class="pill warn">Preset: da verificare</span>
+      <span id="mixState" class="pill warn">Mix farine: da verificare</span>
+    </div>
+  </div>
 
   <section class="panel">
-    <h2>Bozza prossimo impasto</h2><div id="lockText" class="muted">Questa è la bozza usata quando premi START: viene fotografata nella testa del JSONL.</div>
+    <h2>1) Preset e applicazione alla bozza</h2>
+    <div class="muted">Il preset non parte da solo: applicalo esplicitamente alla bozza e poi salva la bozza.</div>
+    <div class="toolbar">
+      <label class="grow">Preset da applicare alla bozza<select id="draftPreset"></select></label>
+      <button id="applyPreset" type="button" class="secondary">Applica preset alla bozza</button>
+      <button id="newPresetTop" type="button" class="ghost">+ Nuovo preset</button>
+    </div>
+    <div id="selectedPresetHint" class="muted"></div>
+  </section>
+
+  <section class="panel">
+    <h2>2) Bozza prossimo impasto</h2>
+    <div id="lockText" class="muted">Questa bozza viene fotografata nella testa del JSONL quando premi START.</div>
     <fieldset id="draftFieldset">
-      <div class="toolbar"><label class="grow">Applica un preset<select id="draftPreset"></select></label><button id="applyPreset" type="button" class="secondary">Applica al prossimo impasto</button><button id="saveDraft" type="button">Salva bozza impasto</button></div>
       <div class="grid">
         <label class="span2">Nome impasto<input id="draftName" maxlength="80"></label><label>Farina totale (g)<input id="draftTotal" type="number" min="1" step="1"></label>
         <label>Idratazione (%)<input id="draftHydration" type="number" min="0" max="200" step="0.1"></label><label>Sale (%)<input id="draftSalt" type="number" min="0" max="20" step="0.01"></label><label>Massa iniziale impasto (g, facoltativa)<input id="draftMass" type="number" min="1" step="1"></label>
@@ -113,13 +196,18 @@ const char CONFIG_HTML[] PROGMEM = R"HTML(
         <label class="check"><input id="draftAutolyse" type="checkbox">Autolisi</label>
         <label>Autolisi (minuti)<input id="draftAutolyseMin" type="number" min="0" max="10080" step="1"></label><label class="full">Note<textarea id="draftNotes"></textarea></label>
       </div>
-      <h3>Miscela farine</h3><div id="draftMix"></div><button type="button" class="secondary" data-add-mix="draftMix">+ Aggiungi farina</button>
+      <h3>Miscela farine bozza</h3>
+      <div id="draftMix"></div>
+      <button type="button" class="secondary" data-add-mix="draftMix">+ Aggiungi farina</button>
+      <div id="draftMixSummary" class="mix-summary">Somma mix: --</div>
+      <div class="divider"></div>
+      <button id="saveDraft" type="button">Salva bozza impasto</button>
     </fieldset>
   </section>
 
   <section class="panel">
-    <h2>Preset (libreria ricette)</h2><div class="muted">Qui crei/modifichi ricette riutilizzabili. Per usarne una nella sessione corrente: selezionala sopra e premi "Applica al prossimo impasto".</div>
-    <div class="toolbar prominent"><span class="hint">Azioni rapide preset</span><button id="newPresetTop" type="button" class="secondary">+ Nuovo preset</button><button id="savePresetTop" type="button">Salva preset</button></div>
+    <h2>3) Libreria preset</h2>
+    <div class="muted">Crea o modifica ricette riutilizzabili. Dopo il salvataggio, applica il preset alla bozza.</div>
     <fieldset id="presetFieldset">
       <div class="toolbar"><label class="grow">Preset da modificare<select id="presetSelect"></select></label><button id="newPreset" type="button" class="secondary">Nuovo</button><button id="deletePreset" type="button" class="danger">Elimina</button><button id="savePreset" type="button">Salva preset</button></div>
       <div class="grid">
@@ -129,7 +217,10 @@ const char CONFIG_HTML[] PROGMEM = R"HTML(
         <label class="check"><input id="presetAutolyse" type="checkbox">Autolisi</label>
         <label>Autolisi (minuti)<input id="presetAutolyseMin" type="number" min="0" max="10080" step="1"></label><label class="full">Note<textarea id="presetNotes"></textarea></label>
       </div>
-      <h3>Miscela farine</h3><div id="presetMix"></div><button type="button" class="secondary" data-add-mix="presetMix">+ Aggiungi farina</button>
+      <h3>Miscela farine preset</h3><div id="presetMix"></div><button type="button" class="secondary" data-add-mix="presetMix">+ Aggiungi farina</button>
+      <div id="presetMixSummary" class="mix-summary">Somma mix: --</div>
+      <div class="divider"></div>
+      <button id="savePresetTop" type="button" class="secondary">Salva preset</button>
     </fieldset>
   </section>
 
@@ -148,41 +239,61 @@ const char CONFIG_HTML[] PROGMEM = R"HTML(
   </section>
 
   <section class="panel"><h2>Backup</h2><div class="muted">Esporta periodicamente una copia. L’importazione sostituisce catalogo, preset e prossimo impasto dopo averli validati.</div><div class="backup"><a class="back" href="/api/config/export" download="fermentlab-backup.json">Esporta JSON</a><label>Importa JSON<input id="importFile" type="file" accept="application/json,.json"></label></div></section>
+
+  <section class="sticky-actions">
+    <div class="left">
+      <span id="stickyHint" class="muted">Salva la bozza prima di tornare alla dashboard.</span>
+    </div>
+    <button id="stickySaveDraft" type="button">Salva bozza adesso</button>
+  </section>
 </main>
 <script>
-const $=id=>document.getElementById(id);let floursDoc,presetsDoc,draft,active=false,flourIndex=0,presetIndex=0;
+const $=id=>document.getElementById(id);let floursDoc,presetsDoc,draft,active=false,flourIndex=0,presetIndex=0,draftDirty=false,presetDirty=false;
 const num=(id,nullable=false)=>{const v=$(id).value.trim();return v===''&&nullable?null:Number(v)};
 const val=v=>v==null?'':v;const slug=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,48);
-function message(text,error=false){const n=$('notice');n.textContent=text;n.className='notice show'+(error?' error':'');clearTimeout(message.timer);message.timer=setTimeout(()=>n.className='notice',5000)}
+function message(text,error=false){const n=$('notice');n.textContent=text;n.className='notice show'+(error?' error':'')}
 async function get(path){const r=await fetch(path,{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
 async function put(path,data){const r=await fetch(path,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json();if(!r.ok||!out.ok)throw Error(out.message||('HTTP '+r.status));message(out.message);return out}
 function flourLabel(id){const f=floursDoc.items.find(x=>x.id===id);return f?(f.brand+' '+f.name):id}
 function recipeFrom(prefix){return {reading_interval_s:num(prefix+'Interval'),total_flour_g:num(prefix+'Total'),hydration_pct:num(prefix+'Hydration'),salt_pct:num(prefix+'Salt'),yeast_type:$(prefix+'YeastType').value,yeast_pct:num(prefix+'Yeast'),autolyse:$(prefix+'Autolyse').checked,autolyse_min:num(prefix+'AutolyseMin'),flours:[...$(prefix+'Mix').querySelectorAll('.mix-row')].map(r=>({flour_id:r.querySelector('select').value,pct:Number(r.querySelector('input').value)})),notes:$(prefix+'Notes').value}}
 function fillRecipe(prefix,r){$(prefix+'Interval').value=val(r.reading_interval_s??10);$(prefix+'Total').value=val(r.total_flour_g);$(prefix+'Hydration').value=val(r.hydration_pct);$(prefix+'Salt').value=val(r.salt_pct);$(prefix+'YeastType').value=r.yeast_type||'fresh';$(prefix+'Yeast').value=val(r.yeast_pct);$(prefix+'Autolyse').checked=!!r.autolyse;$(prefix+'AutolyseMin').value=val(r.autolyse_min);$(prefix+'Notes').value=r.notes||'';renderMix(prefix+'Mix',r.flours||[])}
 function renderMix(containerId,mix){const box=$(containerId);box.innerHTML='';(mix.length?mix:[{flour_id:floursDoc.items[0]?.id||'',pct:100}]).forEach(x=>addMix(containerId,x))}
-function addMix(containerId,item={flour_id:floursDoc.items[0]?.id||'',pct:0}){const row=document.createElement('div');row.className='mix-row';const options=floursDoc.items.map(f=>`<option value="${f.id}">${f.brand} ${f.name}</option>`).join('');row.innerHTML=`<label>Farina<select>${options}</select></label><label>Percentuale<input type="number" min="0.01" max="100" step="0.1" value="${item.pct}"></label><button type="button" class="danger">×</button>`;row.querySelector('select').value=item.flour_id;row.querySelector('button').onclick=()=>row.remove();$(containerId).appendChild(row)}
-function applyPresetToDraft(showMessage=true){const p=presetsDoc.items.find(x=>x.id===$('draftPreset').value);if(!p)return false;draft={...draft,...JSON.parse(JSON.stringify(p)),schema:'fermentlab.session-draft.v1',revision:(draft.revision||0)+1,name:draft.name||p.name,preset_id:p.id,initial_dough_mass_g:draft.initial_dough_mass_g??null};renderDraft();if(showMessage)message('Campi bozza aggiornati dal preset selezionato. Premi "Salva bozza impasto" per confermare.');return true}
-function renderDraft(){ $('draftName').value=draft.name||'';$('draftMass').value=val(draft.initial_dough_mass_g);fillRecipe('draft',draft);$('draftPreset').innerHTML='<option value="">— scegli —</option>'+presetsDoc.items.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');$('draftPreset').value=draft.preset_id||''}
-function refreshPresetSelects(){const options=presetsDoc.items.map((p,i)=>`<option value="${i}">${p.name}</option>`).join('');$('presetSelect').innerHTML=options;$('draftPreset').innerHTML='<option value="">— scegli —</option>'+presetsDoc.items.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+function mixTotal(containerId){return [...$(containerId).querySelectorAll('.mix-row input')].reduce((sum,input)=>sum+(Number(input.value)||0),0)}
+function updateMixSummary(prefix){const total=mixTotal(prefix+'Mix');const summary=$(prefix+'MixSummary');const close=Math.abs(total-100)<=0.2;summary.textContent='Somma mix: '+total.toFixed(1)+'%'+(close?' (ok)':' (atteso 100%)');summary.className='mix-summary'+(close?'':' error');if(prefix==='draft'){updateMixState(close)}}
+function addMix(containerId,item={flour_id:floursDoc.items[0]?.id||'',pct:0}){const row=document.createElement('div');row.className='mix-row';const options=floursDoc.items.length?floursDoc.items.map(f=>`<option value="${f.id}">${f.brand} ${f.name}</option>`).join(''):'<option value="">Nessuna farina nel catalogo</option>';row.innerHTML=`<label>Farina<select>${options}</select></label><label>Percentuale<input type="number" min="0.01" max="100" step="0.1" value="${item.pct}"></label><button type="button" class="danger">×</button>`;row.querySelector('select').value=item.flour_id;row.querySelector('button').onclick=()=>{row.remove();if(containerId==='draftMix')markDraftDirty();if(containerId==='presetMix')markPresetDirty();updateMixSummary(containerId==='draftMix'?'draft':'preset')};row.querySelector('input').oninput=()=>{if(containerId==='draftMix')markDraftDirty();if(containerId==='presetMix')markPresetDirty();updateMixSummary(containerId==='draftMix'?'draft':'preset')};row.querySelector('select').onchange=()=>{if(containerId==='draftMix')markDraftDirty();if(containerId==='presetMix')markPresetDirty()};$(containerId).appendChild(row);updateMixSummary(containerId==='draftMix'?'draft':'preset')}
+function applyPresetToDraft(showMessage=true){const p=presetsDoc.items.find(x=>x.id===$('draftPreset').value);if(!p){message('Seleziona prima un preset.',true);return false}draft={...draft,...JSON.parse(JSON.stringify(p)),schema:'fermentlab.session-draft.v1',revision:(draft.revision||0)+1,name:draft.name||p.name,preset_id:p.id,initial_dough_mass_g:draft.initial_dough_mass_g??null};renderDraft();markDraftDirty();if(showMessage)message('Preset applicato alla bozza. Salva la bozza per confermare.');return true}
+function renderDraft(){ $('draftName').value=draft.name||'';$('draftMass').value=val(draft.initial_dough_mass_g);fillRecipe('draft',draft);$('draftPreset').innerHTML='<option value="">-- scegli --</option>'+presetsDoc.items.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');$('draftPreset').value=draft.preset_id||'';updateSelectedPresetHint();updateMixSummary('draft')}
+function refreshPresetSelects(){const options=presetsDoc.items.map((p,i)=>`<option value="${i}">${p.name}</option>`).join('');$('presetSelect').innerHTML=options;$('draftPreset').innerHTML='<option value="">-- scegli --</option>'+presetsDoc.items.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');updateSelectedPresetHint()}
+function updateSelectedPresetHint(){const selected=presetsDoc.items.find(x=>x.id===$('draftPreset').value);$('selectedPresetHint').textContent=selected?('Preset selezionato: '+selected.name+' · id '+selected.id):'Nessun preset selezionato: la bozza usa i valori correnti manuali.'}
 function editPreset(index){presetIndex=index;const p=presetsDoc.items[index];$('presetId').readOnly=!!p;if(!p){$('presetId').value='';$('presetName').value='';fillRecipe('preset',{reading_interval_s:10,total_flour_g:1000,hydration_pct:65,salt_pct:2.5,yeast_type:'fresh',yeast_pct:.1,autolyse:false,autolyse_min:0,flours:[{flour_id:floursDoc.items[0]?.id,pct:100}],notes:''});return}$('presetSelect').value=index;$('presetId').value=p.id;$('presetName').value=p.name;fillRecipe('preset',p)}
 function renderFlours(){const cards=$('flourCards');cards.innerHTML='';floursDoc.items.forEach((f,i)=>{const b=document.createElement('button');b.type='button';b.className='card'+(i===flourIndex?' selected':'');b.innerHTML=`<span class="status-dot ${f.verified?'':'unverified'}"></span>${f.brand} · ${f.name}<small>${f.type?'Tipo '+f.type:'Tipo da inserire'} · ${f.protein_pct==null?'proteine da inserire':f.protein_pct+'% proteine'}</small>`;b.onclick=()=>editFlour(i);cards.appendChild(b)})}
 function editFlour(index){flourIndex=index;const f=floursDoc.items[index]||{};$('flourId').value=f.id||'';$('flourBrand').value=f.brand||'';$('flourName').value=f.name||'';$('flourType').value=val(f.type);$('flourProtein').value=val(f.protein_pct);$('flourWMin').value=val(f.w_min);$('flourWMax').value=val(f.w_max);$('flourPlMin').value=val(f.pl_min);$('flourPlMax').value=val(f.pl_max);$('flourNotes').value=f.notes||'';$('flourSource').value=f.source_url||'';$('flourVerified').checked=!!f.verified;renderFlours()}
-function setLock(on){active=on;['draftFieldset','presetFieldset','flourFieldset'].forEach(id=>$(id).disabled=on);['newPresetTop','savePresetTop'].forEach(id=>$(id).disabled=on);$('lockText').innerHTML=on?'<span class="lock">Sessione attiva: configurazione bloccata fino allo STOP.</span>':'Questa è la bozza usata quando premi START: viene fotografata nella testa del JSONL.'}
+function setLock(on){active=on;['draftFieldset','presetFieldset','flourFieldset'].forEach(id=>$(id).disabled=on);['newPresetTop','savePresetTop','applyPreset','stickySaveDraft'].forEach(id=>$(id).disabled=on);$('lockText').innerHTML=on?'<span class="lock">Sessione attiva: configurazione bloccata fino allo STOP.</span>':'Questa bozza viene fotografata nella testa del JSONL quando premi START.';$('sessionLockBadge').className='pill '+(on?'warn':'ok');$('sessionLockBadge').textContent=on?'Sessione attiva: modifiche bloccate':'Sessione ferma: modifiche abilitate'}
+function updateDraftState(){if(draftDirty){$('draftState').className='pill warn';$('draftState').textContent='Bozza: modifiche non salvate';$('stickyHint').textContent='Hai modifiche in bozza non salvate.'}else{$('draftState').className='pill ok';$('draftState').textContent='Bozza: salvata';$('stickyHint').textContent='Bozza allineata. Puoi tornare alla dashboard.'}}
+function updatePresetState(){if(presetDirty){$('presetState').className='pill warn';$('presetState').textContent='Preset: modifiche non salvate'}else{$('presetState').className='pill ok';$('presetState').textContent='Preset: salvato'}}
+function updateMixState(ok){$('mixState').className='pill '+(ok?'ok':'warn');$('mixState').textContent=ok?'Mix farine: 100%':'Mix farine: da correggere'}
+function markDraftDirty(){draftDirty=true;updateDraftState()}
+function markPresetDirty(){presetDirty=true;updatePresetState()}
+function validateMix(prefix){const rows=[...$(prefix+'Mix').querySelectorAll('.mix-row')];if(rows.length===0)return {ok:false,error:'Inserisci almeno una farina nel mix.'};const total=mixTotal(prefix+'Mix');if(Math.abs(total-100)>0.2)return {ok:false,error:'La somma delle percentuali del mix deve essere 100% (ora '+total.toFixed(1)+'%).'};return {ok:true}}
 async function load(){try{[floursDoc,presetsDoc,draft]=await Promise.all([get('/api/config/flours'),get('/api/config/presets'),get('/api/config/draft')]);refreshPresetSelects();renderDraft();editPreset(0);editFlour(0);const s=await get('/api/status');setLock(s.session_active)}catch(e){message('Caricamento fallito: '+e.message,true)}}
-document.querySelectorAll('[data-add-mix]').forEach(b=>b.onclick=()=>addMix(b.dataset.addMix));
-$('draftPreset').onchange=()=>{applyPresetToDraft(true)};
+document.querySelectorAll('[data-add-mix]').forEach(b=>b.onclick=()=>{addMix(b.dataset.addMix);if(b.dataset.addMix==='draftMix')markDraftDirty();if(b.dataset.addMix==='presetMix')markPresetDirty()});
+$('draftPreset').onchange=()=>{updateSelectedPresetHint()};
 $('applyPreset').onclick=()=>{applyPresetToDraft(true)};
-$('saveDraft').onclick=async()=>{try{draft={schema:'fermentlab.session-draft.v1',revision:(draft.revision||0)+1,name:$('draftName').value.trim(),preset_id:$('draftPreset').value||null,initial_dough_mass_g:num('draftMass',true),...recipeFrom('draft')};await put('/api/config/draft',draft)}catch(e){message(e.message,true)}};
+$('saveDraft').onclick=async()=>{try{const mixCheck=validateMix('draft');if(!mixCheck.ok)throw Error(mixCheck.error);draft={schema:'fermentlab.session-draft.v1',revision:(draft.revision||0)+1,name:$('draftName').value.trim(),preset_id:$('draftPreset').value||null,initial_dough_mass_g:num('draftMass',true),...recipeFrom('draft')};await put('/api/config/draft',draft);draftDirty=false;updateDraftState()}catch(e){message(e.message,true)}};
+$('stickySaveDraft').onclick=()=>$('saveDraft').click();
 $('presetSelect').onchange=()=>editPreset(Number($('presetSelect').value));$('newPreset').onclick=()=>{presetIndex=-1;editPreset(-1)};
 $('newPresetTop').onclick=()=>$('newPreset').click();
 $('savePresetTop').onclick=()=>$('savePreset').click();
-$('savePreset').onclick=async()=>{try{const id=slug($('presetId').value||$('presetName').value);if(!id)throw Error('Inserisci un ID o un nome.');const p={id,name:$('presetName').value.trim(),...recipeFrom('preset')};if(presetIndex<0)presetsDoc.items.push(p);else presetsDoc.items[presetIndex]=p;presetsDoc.revision=(presetsDoc.revision||0)+1;await put('/api/config/presets',presetsDoc);refreshPresetSelects();editPreset(Math.max(0,presetIndex<0?presetsDoc.items.length-1:presetIndex))}catch(e){message(e.message,true)}};
+$('savePreset').onclick=async()=>{try{const mixCheck=validateMix('preset');if(!mixCheck.ok)throw Error(mixCheck.error);const id=slug($('presetId').value||$('presetName').value);if(!id)throw Error('Inserisci un ID o un nome.');const p={id,name:$('presetName').value.trim(),...recipeFrom('preset')};if(presetIndex<0)presetsDoc.items.push(p);else presetsDoc.items[presetIndex]=p;presetsDoc.revision=(presetsDoc.revision||0)+1;await put('/api/config/presets',presetsDoc);refreshPresetSelects();editPreset(Math.max(0,presetIndex<0?presetsDoc.items.length-1:presetIndex));presetDirty=false;updatePresetState()}catch(e){message(e.message,true)}};
 $('deletePreset').onclick=async()=>{if(presetIndex<0||!presetsDoc.items[presetIndex])return;if(!confirm('Eliminare questo preset?'))return;try{presetsDoc.items.splice(presetIndex,1);presetsDoc.revision=(presetsDoc.revision||0)+1;await put('/api/config/presets',presetsDoc);refreshPresetSelects();editPreset(0)}catch(e){message(e.message,true)}};
 $('newFlour').onclick=()=>{flourIndex=-1;editFlour(-1)};
 $('saveFlour').onclick=async()=>{try{const id=slug($('flourId').value||($('flourBrand').value+' '+$('flourName').value));if(!id)throw Error('Inserisci marca e nome.');const f={id,brand:$('flourBrand').value.trim(),name:$('flourName').value.trim(),type:$('flourType').value.trim()||null,protein_pct:num('flourProtein',true),w_min:num('flourWMin',true),w_max:num('flourWMax',true),pl_min:num('flourPlMin',true),pl_max:num('flourPlMax',true),notes:$('flourNotes').value,source_url:$('flourSource').value.trim(),verified:$('flourVerified').checked};if(flourIndex<0)floursDoc.items.push(f);else floursDoc.items[flourIndex]=f;floursDoc.revision=(floursDoc.revision||0)+1;await put('/api/config/flours',floursDoc);flourIndex=flourIndex<0?floursDoc.items.length-1:flourIndex;renderFlours();editFlour(flourIndex);renderDraft();editPreset(Math.max(0,presetIndex))}catch(e){message(e.message,true)}};
 $('deleteFlour').onclick=async()=>{const f=floursDoc.items[flourIndex];if(!f)return;const used=draft.flours?.some(x=>x.flour_id===f.id)||presetsDoc.items.some(p=>p.flours?.some(x=>x.flour_id===f.id));if(used){message('Farina usata da un preset o dal prossimo impasto: sostituiscila prima.',true);return}if(!confirm('Eliminare '+f.brand+' '+f.name+'?'))return;try{floursDoc.items.splice(flourIndex,1);floursDoc.revision=(floursDoc.revision||0)+1;await put('/api/config/flours',floursDoc);flourIndex=0;editFlour(0)}catch(e){message(e.message,true)}};
 $('importFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;if(!confirm('Sostituire tutta la configurazione con questo backup?'))return;try{const text=await file.text();const r=await fetch('/api/config/import',{method:'POST',headers:{'Content-Type':'application/json'},body:text});const out=await r.json();if(!out.ok)throw Error(out.message);message(out.message);await load()}catch(err){message('Importazione fallita: '+err.message,true)}finally{e.target.value=''}};
-load();setInterval(async()=>{try{setLock((await get('/api/status')).session_active)}catch(e){}},3000);
+['draftFieldset','presetFieldset'].forEach(id=>$(id).addEventListener('input',e=>{if(id==='draftFieldset')markDraftDirty();else markPresetDirty();if(e.target&&e.target.closest('.mix-row'))updateMixSummary(id==='draftFieldset'?'draft':'preset')}));
+['draftFieldset','presetFieldset'].forEach(id=>$(id).addEventListener('change',()=>{if(id==='draftFieldset')markDraftDirty();else markPresetDirty()}));
+load().then(()=>{draftDirty=false;presetDirty=false;updateDraftState();updatePresetState();updateMixSummary('draft');updateMixSummary('preset')});
+setInterval(async()=>{try{setLock((await get('/api/status')).session_active)}catch(e){}},3000);
 </script></body></html>
 )HTML";
 
