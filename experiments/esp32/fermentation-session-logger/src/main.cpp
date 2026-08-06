@@ -58,16 +58,6 @@ const WifiCredential WIFI_CREDENTIALS[] = {
 constexpr size_t WIFI_CREDENTIAL_COUNT =
     sizeof(WIFI_CREDENTIALS) / sizeof(WIFI_CREDENTIALS[0]);
 
-class StringPrint : public Print {
- public:
-  size_t write(uint8_t value) override {
-    buffer += static_cast<char>(value);
-    return 1;
-  }
-
-  String buffer;
-};
-
 void appendInfluxEscapedTag(String& output, const char* value) {
   while (*value != '\0') {
     if (*value == ' ' || *value == ',' || *value == '=' || *value == '\\') {
@@ -84,6 +74,18 @@ void appendInfluxIntegerField(String& output, const char* key, uint32_t value,
   output += '=';
   output += String(value);
   output += 'i';
+  hasField = true;
+}
+
+void appendInfluxFloatField(String& output, const char* key, float value,
+                            bool& hasField) {
+  if (isnan(value) || isinf(value)) {
+    return;
+  }
+  output += hasField ? ',' : ' ';
+  output += key;
+  output += '=';
+  output += String(value, 3);
   hasField = true;
 }
 
@@ -248,6 +250,26 @@ void printJsonFloat(Print& output, float value, uint8_t decimals = 3) {
   } else {
     output.print(value, decimals);
   }
+}
+
+void printJsonString(Print& output, const String& value) {
+  output.print('"');
+  for (size_t index = 0; index < value.length(); ++index) {
+    const char c = value[index];
+    if (c == '\\' || c == '"') {
+      output.print('\\');
+      output.print(c);
+    } else if (c == '\n') {
+      output.print(F("\\n"));
+    } else if (c == '\r') {
+      output.print(F("\\r"));
+    } else if (c == '\t') {
+      output.print(F("\\t"));
+    } else {
+      output.print(c);
+    }
+  }
+  output.print('"');
 }
 
 void emitEvent(const char* type, const char* code) {
@@ -990,22 +1012,22 @@ void writeSessionStart(Print& output, time_t timestamp,
   output.print(static_cast<unsigned long>(timestamp));
   output.print(F(",\"timezone\":\"Europe/Rome\",\"interval_s\":"));
   output.print(sessionReadingIntervalSeconds);
-  output.print(F(",\"recipe\":"));
-  if (!sessionConfigStore.writeRecipeSnapshot(output)) {
-    output.print(F("null"));
-  }
+  output.print(F(",\"recipe_name\":"));
+  printJsonString(output, sessionConfigStore.draftName());
+  output.print(F(",\"recipe_flours\":"));
+  printJsonString(output, sessionConfigStore.draftFlourSummary());
+  output.print(F(",\"recipe_hydration_pct\":"));
+  printJsonFloat(output, sessionConfigStore.draftHydrationPercent(), 1);
   output.println(F("}"));
 }
 
 String buildSessionStartLineProtocol(time_t timestamp, const char* isoTimestamp) {
-  StringPrint recipeOutput;
-  String recipeJson;
-  if (sessionConfigStore.writeRecipeSnapshot(recipeOutput)) {
-    recipeJson = recipeOutput.buffer;
-  }
+  const String draftName = sessionConfigStore.draftName();
+  const String draftFlours = sessionConfigStore.draftFlourSummary();
+  const float hydration = sessionConfigStore.draftHydrationPercent();
 
   String line;
-  line.reserve(768);
+  line.reserve(320);
   line += F("session_start,device_id=");
   appendInfluxEscapedTag(line, deviceId);
   line += F(",session_id=");
@@ -1021,9 +1043,9 @@ String buildSessionStartLineProtocol(time_t timestamp, const char* isoTimestamp)
   appendInfluxStringField(line, "timezone", String("Europe/Rome"), hasField);
   appendInfluxIntegerField(line, "interval_s", sessionReadingIntervalSeconds,
                            hasField);
-  if (recipeJson.length() > 0) {
-    appendInfluxStringField(line, "recipe", recipeJson, hasField);
-  }
+  appendInfluxStringField(line, "name", draftName, hasField);
+  appendInfluxStringField(line, "flours_summary", draftFlours, hasField);
+  appendInfluxFloatField(line, "hydration_pct", hydration, hasField);
   return line;
 }
 
@@ -1040,8 +1062,8 @@ void emitSessionStartToInflux(time_t timestamp, const char* isoTimestamp) {
 
 void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
   writeSessionStart(Serial, timestamp, isoTimestamp);
-  writeSessionStart(sessionFile, timestamp, isoTimestamp);
-  sessionFile.flush();
+  // Keep START metadata off the local session file to avoid an early
+  // LittleFS write path that has been causing runtime resets on some boards.
   emitSessionStartToInflux(timestamp, isoTimestamp);
 }
 
