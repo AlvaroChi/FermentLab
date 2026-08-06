@@ -1,0 +1,69 @@
+@echo off
+setlocal
+
+set "SCRIPT_DIR=%~dp0"
+set "REPO_ROOT=%SCRIPT_DIR%..\.."
+set "SECRETS_FILE=%REPO_ROOT%\experiments\esp32\fermentation-session-logger\include\secrets.h"
+
+if not exist "%SECRETS_FILE%" (
+    echo File secrets non trovato: "%SECRETS_FILE%"
+    exit /b 1
+)
+
+for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*WIFI_SSID_2[ ]*\"" "%SECRETS_FILE%"') do set "EXPECTED_SSID=%%A"
+for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*INFLUX_PC_URL[ ]*\"" "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_URL=%%A"
+for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*INFLUX_PC_TOKEN[ ]*\"" "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_TOKEN=%%A"
+for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*INFLUX_PC_ORG[ ]*\"" "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_ORG=%%A"
+for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*INFLUX_PC_BUCKET[ ]*\"" "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_BUCKET=%%A"
+
+if "%EXPECTED_SSID%"=="" (
+    echo Impossibile leggere WIFI_SSID_2 da secrets.h
+    exit /b 1
+)
+if "%FERMENTLAB_INFLUX_URL%"=="" (
+    echo Impossibile leggere INFLUX_PC_URL da secrets.h
+    exit /b 1
+)
+if "%FERMENTLAB_INFLUX_TOKEN%"=="" (
+    echo Impossibile leggere INFLUX_PC_TOKEN da secrets.h
+    exit /b 1
+)
+if "%FERMENTLAB_INFLUX_ORG%"=="" (
+    echo Impossibile leggere INFLUX_PC_ORG da secrets.h
+    exit /b 1
+)
+if "%FERMENTLAB_INFLUX_BUCKET%"=="" (
+    echo Impossibile leggere INFLUX_PC_BUCKET da secrets.h
+    exit /b 1
+)
+
+for /f "tokens=2 delims=:" %%A in ('netsh wlan show interfaces ^| findstr /R /C:"^[ ]*SSID[ ]*:"') do (
+    if not defined CURRENT_SSID set "CURRENT_SSID=%%A"
+)
+for /f "tokens=* delims= " %%A in ("%CURRENT_SSID%") do set "CURRENT_SSID=%%A"
+
+echo.
+echo FermentLab Analyzer - Profilo LAPTOP/Kaki64
+echo Wi-Fi corrente: %CURRENT_SSID%
+if /I not "%CURRENT_SSID%"=="%EXPECTED_SSID%" (
+    echo ATTENZIONE: rete prevista "%EXPECTED_SSID%", trovata "%CURRENT_SSID%".
+    echo L'app parte lo stesso: uso profilo Influx PC da secrets.h.
+)
+set "PYTHON_EXE=%REPO_ROOT%\.venv\Scripts\python.exe"
+
+if not exist "%PYTHON_EXE%" (
+    echo Python non trovato in "%PYTHON_EXE%".
+    echo Crea prima l'ambiente virtuale .venv nella root del repository.
+    exit /b 1
+)
+
+echo.
+echo Installo/verifico dipendenze...
+"%PYTHON_EXE%" -m pip install -r "%SCRIPT_DIR%requirements.txt"
+if errorlevel 1 exit /b 1
+
+echo.
+echo Avvio Streamlit Analyzer...
+"%PYTHON_EXE%" -m streamlit run "%SCRIPT_DIR%app.py"
+
+endlocal
