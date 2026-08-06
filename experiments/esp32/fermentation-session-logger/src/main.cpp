@@ -1695,6 +1695,14 @@ void loop() {
   serviceDoughSensor();
   webInterface.tick();
 
+  // Prioritize web START/STOP commands before potentially blocking work
+  // (sensor/queue upload), so the UI does not time out waiting for state
+  // changes.
+  if (webToggleRequested) {
+    webToggleRequested = false;
+    toggleSession();
+  }
+
   if (sessionActive &&
       millis() - lastReadingMs >= sessionReadingIntervalSeconds * 1000UL) {
     emitMeasurement();
@@ -1713,10 +1721,6 @@ void loop() {
       influxFailureActive = true;
       emitEvent("error", "INFLUX_CONFIGURATION_MISSING");
     }
-  }
-  if (webToggleRequested) {
-    webToggleRequested = false;
-    toggleSession();
   }
   updateStatusLed();
   delay(2);
