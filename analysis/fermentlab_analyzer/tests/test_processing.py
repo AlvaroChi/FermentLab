@@ -35,8 +35,10 @@ class ProcessingTests(unittest.TestCase):
 
         self.assertEqual(summary.signal_field, "volume_ml")
         self.assertAlmostEqual(summary.baseline_value, 1000.8333, places=3)
+        self.assertAlmostEqual(summary.current_ratio_x, 1.0991, places=3)
         self.assertAlmostEqual(summary.current_growth_pct, 9.9084, places=3)
         self.assertAlmostEqual(summary.current_growth_rate_pct_h, 9.9917, places=3)
+        self.assertTrue(np.isfinite(summary.current_growth_accel_pct_h2))
         self.assertEqual(summary.measurements, 61)
 
     def test_invalid_volume_is_ignored_by_smoothing(self) -> None:
@@ -69,6 +71,7 @@ class ProcessingTests(unittest.TestCase):
 
         self.assertEqual(summary.signal_field, "dough_height_mm")
         self.assertEqual(summary.signal_unit, "mm")
+        self.assertGreater(summary.current_ratio_x, 1.0)
         self.assertGreater(summary.current_growth_pct, 0)
 
     def test_baseline_offset_ignores_initial_settling(self) -> None:
@@ -95,6 +98,31 @@ class ProcessingTests(unittest.TestCase):
     def test_missing_required_columns_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "volume o altezza"):
             analyze_session(pd.DataFrame({"_time": ["2026-08-01T10:00:00Z"]}))
+
+    def test_despike_reduces_impulse_without_mutating_raw_signal(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "_time": pd.date_range(
+                    "2026-08-01T10:00:00Z", periods=8, freq="1min"
+                ),
+                "dough_height_mm": [50.0, 50.1, 50.2, 75.0, 50.3, 50.3, 50.4, 50.4],
+            }
+        )
+
+        analysis = analyze_session(
+            frame,
+            smoothing_minutes=1,
+            despike_window_minutes=3,
+            despike_sigma=3.0,
+            baseline_minutes=1,
+            rate_window_minutes=3,
+            acceleration_window_minutes=3,
+        )
+
+        spike_idx = analysis.index[3]
+        self.assertEqual(analysis["dough_height_mm"].loc[spike_idx], 75.0)
+        self.assertLess(analysis["signal_despiked"].loc[spike_idx], 75.0)
+        self.assertIn("growth_accel_pct_h2", analysis.columns)
 
 
 if __name__ == "__main__":

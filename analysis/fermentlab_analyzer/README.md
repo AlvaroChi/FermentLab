@@ -39,6 +39,8 @@ L'applicazione elenca automaticamente i `session_id` disponibili e aggiorna le
 query ogni 30 secondi. Il pulsante **Aggiorna dati** forza un nuovo caricamento.
 Il controllo **Ignora i primi minuti** permette di spostare la baseline quando
 il campione non era ancora stabile al momento dello START.
+Se il bucket contiene anche il record `session_start` con il blocco `recipe`,
+l'interfaccia mostra i parametri della ricetta sotto ai KPI della sessione.
 
 ## Test
 

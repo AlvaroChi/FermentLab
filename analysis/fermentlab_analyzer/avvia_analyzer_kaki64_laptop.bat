@@ -10,11 +10,22 @@ if not exist "%SECRETS_FILE%" (
     exit /b 1
 )
 
-for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*WIFI_SSID_2[ ]*\"" "%SECRETS_FILE%"') do set "EXPECTED_SSID=%%A"
-for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*INFLUX_PC_URL[ ]*\"" "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_URL=%%A"
-for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*INFLUX_PC_TOKEN[ ]*\"" "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_TOKEN=%%A"
-for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*INFLUX_PC_ORG[ ]*\"" "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_ORG=%%A"
-for /f "tokens=2 delims=\"" %%A in ('findstr /R /C:"^[ ]*#define[ ]*INFLUX_PC_BUCKET[ ]*\"" "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_BUCKET=%%A"
+for /f "tokens=3" %%A in ('findstr /B /C:"#define WIFI_SSID_2 " "%SECRETS_FILE%"') do set "EXPECTED_SSID=%%A"
+for /f "tokens=3" %%A in ('findstr /B /C:"#define INFLUX_PC_URL " "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_URL=%%A"
+for /f "tokens=3" %%A in ('findstr /B /C:"#define INFLUX_PC_TOKEN " "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_TOKEN=%%A"
+for /f "tokens=3" %%A in ('findstr /B /C:"#define INFLUX_PC_ORG " "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_ORG=%%A"
+for /f "tokens=3" %%A in ('findstr /B /C:"#define INFLUX_PC_BUCKET " "%SECRETS_FILE%"') do set "FERMENTLAB_INFLUX_BUCKET=%%A"
+
+set "EXPECTED_SSID=%EXPECTED_SSID:\"=%"
+set "EXPECTED_SSID=%EXPECTED_SSID:"=%"
+set "FERMENTLAB_INFLUX_URL=%FERMENTLAB_INFLUX_URL:\"=%"
+set "FERMENTLAB_INFLUX_URL=%FERMENTLAB_INFLUX_URL:"=%"
+set "FERMENTLAB_INFLUX_TOKEN=%FERMENTLAB_INFLUX_TOKEN:\"=%"
+set "FERMENTLAB_INFLUX_TOKEN=%FERMENTLAB_INFLUX_TOKEN:"=%"
+set "FERMENTLAB_INFLUX_ORG=%FERMENTLAB_INFLUX_ORG:\"=%"
+set "FERMENTLAB_INFLUX_ORG=%FERMENTLAB_INFLUX_ORG:"=%"
+set "FERMENTLAB_INFLUX_BUCKET=%FERMENTLAB_INFLUX_BUCKET:\"=%"
+set "FERMENTLAB_INFLUX_BUCKET=%FERMENTLAB_INFLUX_BUCKET:"=%"
 
 if "%EXPECTED_SSID%"=="" (
     echo Impossibile leggere WIFI_SSID_2 da secrets.h

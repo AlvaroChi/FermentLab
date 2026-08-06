@@ -32,8 +32,10 @@ class AnalysisSummary:
     signal_unit: str
     baseline_value: float
     current_value: float
+    current_ratio_x: float
     current_growth_pct: float
     current_growth_rate_pct_h: float
+    current_growth_accel_pct_h2: float
     maximum_growth_pct: float
 
 
@@ -56,13 +58,38 @@ def _rolling_slope(
     return pd.Series(slopes, index=times, dtype=float)
 
 
+def _despike_signal(
+    values: pd.Series, window_minutes: int, sigma: float
+) -> pd.Series:
+    """Replace impulsive outliers using rolling median + MAD threshold."""
+
+    if window_minutes <= 0 or sigma <= 0:
+        return values.copy()
+
+    median = values.rolling(f"{int(window_minutes)}min", min_periods=3).median()
+    deviation = (values - median).abs()
+    mad = deviation.rolling(f"{int(window_minutes)}min", min_periods=3).median()
+    robust_sigma = 1.4826 * mad
+
+    threshold = robust_sigma * float(sigma)
+    outlier_mask = threshold.gt(0) & deviation.gt(threshold)
+    cleaned = values.copy()
+    cleaned.loc[outlier_mask] = median.loc[outlier_mask]
+    return cleaned
+
+
 def analyze_session(
     measurements: pd.DataFrame,
     *,
     smoothing_minutes: int = 5,
+    post_smoothing_minutes: int = 0,
+    despike_window_minutes: int = 0,
+    despike_sigma: float = 0.0,
     baseline_offset_minutes: int = 0,
     baseline_minutes: int = 5,
     rate_window_minutes: int = 30,
+    acceleration_window_minutes: int = 60,
+    minimum_slope_points: int = 3,
 ) -> pd.DataFrame:
     """Return cleaned measurements plus normalized growth and growth rate."""
 
@@ -96,10 +123,23 @@ def analyze_session(
         raise ValueError("La sessione non contiene volume o altezza validi.")
     signal_field, signal_label, signal_unit = selected
 
-    signal = frame[signal_field].where(frame[signal_field] > 0)
-    frame["signal_smooth"] = signal.rolling(
+    signal_raw = frame[signal_field].where(frame[signal_field] > 0)
+    signal_despiked = _despike_signal(
+        signal_raw,
+        int(despike_window_minutes),
+        float(despike_sigma),
+    )
+    signal_smooth = signal_despiked.rolling(
         f"{int(smoothing_minutes)}min", min_periods=1
     ).median()
+    if int(post_smoothing_minutes) > 0:
+        signal_smooth = signal_smooth.rolling(
+            f"{int(post_smoothing_minutes)}min", min_periods=1
+        ).mean()
+
+    frame["signal_raw"] = signal_raw
+    frame["signal_despiked"] = signal_despiked
+    frame["signal_smooth"] = signal_smooth
 
     baseline_start = frame.index[0] + timedelta(
         minutes=int(baseline_offset_minutes)
@@ -118,7 +158,14 @@ def analyze_session(
     frame["growth_pct"] = (frame["signal_smooth"] / baseline - 1.0) * 100.0
     frame.loc[frame.index < baseline_start, "growth_pct"] = np.nan
     frame["growth_rate_pct_h"] = _rolling_slope(
-        frame["growth_pct"], int(rate_window_minutes)
+        frame["growth_pct"],
+        int(rate_window_minutes),
+        minimum_points=max(3, int(minimum_slope_points)),
+    )
+    frame["growth_accel_pct_h2"] = _rolling_slope(
+        frame["growth_rate_pct_h"],
+        int(acceleration_window_minutes),
+        minimum_points=max(3, int(minimum_slope_points)),
     )
     frame.attrs["signal_field"] = signal_field
     frame.attrs["signal_label"] = signal_label
@@ -132,6 +179,7 @@ def summarize_session(analysis: pd.DataFrame) -> AnalysisSummary:
         raise ValueError("L'analisi non contiene dati.")
 
     growth_rate = analysis["growth_rate_pct_h"].dropna()
+    growth_accel = analysis["growth_accel_pct_h2"].dropna()
     return AnalysisSummary(
         started_at=analysis.index[0],
         ended_at=analysis.index[-1],
@@ -142,9 +190,18 @@ def summarize_session(analysis: pd.DataFrame) -> AnalysisSummary:
         signal_unit=str(analysis.attrs["signal_unit"]),
         baseline_value=float(analysis.attrs["baseline_value"]),
         current_value=float(analysis["signal_smooth"].iloc[-1]),
+        current_ratio_x=(
+            float(analysis["signal_smooth"].iloc[-1])
+            / float(analysis.attrs["baseline_value"])
+        ),
         current_growth_pct=float(analysis["growth_pct"].iloc[-1]),
         current_growth_rate_pct_h=(
             float(growth_rate.iloc[-1]) if not growth_rate.empty else float("nan")
+        ),
+        current_growth_accel_pct_h2=(
+            float(growth_accel.iloc[-1])
+            if not growth_accel.empty
+            else float("nan")
         ),
         maximum_growth_pct=float(analysis["growth_pct"].max()),
     )
