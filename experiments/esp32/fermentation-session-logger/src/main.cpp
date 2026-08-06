@@ -123,7 +123,6 @@ float lastDoughTemperatureC = NAN;
 uint8_t ambientSensorAddress = Config::SHT3X_DEFAULT_I2C_ADDRESS;
 
 bool sessionActive = false;
-bool webToggleRequested = false;
 bool baselineAvailable = false;
 float baselineDistanceMm = NAN;
 uint32_t sessionStartMs = 0;
@@ -1599,8 +1598,11 @@ String webTestJson() {
 }
 
 String toggleSessionFromWeb() {
-  webToggleRequested = true;
-  return F("{\"ok\":true,\"queued\":true}");
+  toggleSession();
+  String response = F("{\"ok\":true,\"queued\":false,\"session_active\":");
+  response += sessionActive ? F("true") : F("false");
+  response += F("}");
+  return response;
 }
 
 String configurationLockedJson() {
@@ -1694,14 +1696,6 @@ void loop() {
   serviceSensorRecovery();
   serviceDoughSensor();
   webInterface.tick();
-
-  // Prioritize web START/STOP commands before potentially blocking work
-  // (sensor/queue upload), so the UI does not time out waiting for state
-  // changes.
-  if (webToggleRequested) {
-    webToggleRequested = false;
-    toggleSession();
-  }
 
   if (sessionActive &&
       millis() - lastReadingMs >= sessionReadingIntervalSeconds * 1000UL) {
