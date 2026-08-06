@@ -5,3 +5,5 @@ __pycache__/
 **/analysis/results/
 logs/
 *.log
+**/littlefs_dump_*.bin
+**/nvs_backup_*.bin
