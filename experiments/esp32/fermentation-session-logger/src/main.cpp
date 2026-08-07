@@ -124,6 +124,8 @@ float lastDoughTemperatureC = NAN;
 uint8_t ambientSensorAddress = Config::SHT3X_DEFAULT_I2C_ADDRESS;
 
 bool sessionActive = false;
+bool webToggleRequested = false;
+uint32_t webToggleRequestedAtMs = 0;
 bool baselineAvailable = false;
 float baselineDistanceMm = NAN;
 uint32_t sessionStartMs = 0;
@@ -1784,13 +1786,11 @@ String webTestJson() {
 }
 
 String toggleSessionFromWeb() {
-  toggleSession();
-  String json;
-  json.reserve(64);
-  json += F("{\"ok\":true,\"queued\":false,\"session_active\":");
-  json += sessionActive ? F("true") : F("false");
-  json += F("}");
-  return json;
+  if (!webToggleRequested) {
+    webToggleRequestedAtMs = millis();
+  }
+  webToggleRequested = true;
+  return F("{\"ok\":true,\"queued\":true}");
 }
 
 String configurationLockedJson() {
@@ -1899,6 +1899,11 @@ void loop() {
   serviceSensorRecovery();
   serviceDoughSensor();
   webInterface.tick();
+
+  if (webToggleRequested && millis() - webToggleRequestedAtMs >= 120UL) {
+    webToggleRequested = false;
+    toggleSession();
+  }
 
   if (sessionActive &&
       millis() - lastReadingMs >= sessionReadingIntervalSeconds * 1000UL) {
