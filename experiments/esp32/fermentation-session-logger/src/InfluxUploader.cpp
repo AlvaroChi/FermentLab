@@ -117,6 +117,9 @@ void InfluxUploader::begin(PersistentQueue& queue) {
 }
 
 InfluxUploadEvent InfluxUploader::tick() {
+  if (!Config::INFLUX_UPLOAD_ENABLED) {
+    return InfluxUploadEvent::None;
+  }
   if (queue_ == nullptr) {
     return InfluxUploadEvent::None;
   }

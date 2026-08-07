@@ -134,6 +134,7 @@ constexpr uint32_t INFLUX_HTTP_TIMEOUT_MS = 1200;
 constexpr uint32_t INFLUX_RETRY_INITIAL_MS = 5000;
 constexpr uint32_t INFLUX_RETRY_MAX_MS = 5 * 60 * 1000UL;
 constexpr uint32_t INFLUX_SUCCESS_PAUSE_MS = 250;
+constexpr bool INFLUX_UPLOAD_ENABLED = false;
 
 // Recipe data is changed only from the local configuration page. Each file is
 // replaced atomically so a power loss cannot leave the only copy truncated.
