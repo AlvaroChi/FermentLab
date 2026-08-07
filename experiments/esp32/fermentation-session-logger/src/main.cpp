@@ -1064,9 +1064,10 @@ void emitSessionStartToInflux(time_t timestamp, const char* isoTimestamp) {
 
 void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
   writeSessionStart(Serial, timestamp, isoTimestamp);
-  // Keep START metadata off the local session file to avoid an early
-  // LittleFS write path that has been causing runtime resets on some boards.
-  emitSessionStartToInflux(timestamp, isoTimestamp);
+  // Keep START metadata out of filesystem-backed writes. The session_start
+  // queue write can trigger immediate resets on some boards right after START.
+  (void)timestamp;
+  (void)isoTimestamp;
 }
 
 void emitMeasurement() {
