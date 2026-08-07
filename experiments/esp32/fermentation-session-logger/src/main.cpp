@@ -1368,23 +1368,11 @@ void startSession() {
 
   snprintf(sessionId, sizeof(sessionId), "%s-%s-%s", sessionStartDate,
            sessionStartTime, deviceId);
-  if (panicSafeMode) {
-    sessionFileEnabled = false;
-    activeFilePath[0] = '\0';
-    if (!panicSessionFileSkipReported) {
-      emitEvent("warning", "PANIC_SAFE_MODE_SESSION_FILE_DISABLED");
-      panicSessionFileSkipReported = true;
-    }
-  } else {
-    sessionFileEnabled = true;
-    snprintf(activeFilePath, sizeof(activeFilePath), "/%s.partial.jsonl",
-             sessionId);
-    setCrashBreadcrumb(BREADCRUMB_START_FILE_OPEN);
-    sessionFile = LittleFS.open(activeFilePath, FILE_WRITE);
-    if (!sessionFile) {
-      emitEvent("error", "SESSION_FILE_OPEN_FAILED");
-      return;
-    }
+  sessionFileEnabled = false;
+  activeFilePath[0] = '\0';
+  if (panicSafeMode && !panicSessionFileSkipReported) {
+    emitEvent("warning", "PANIC_SAFE_MODE_SESSION_FILE_DISABLED");
+    panicSessionFileSkipReported = true;
   }
   baselineAvailable = false;
   baselineDistanceMm = NAN;
@@ -1458,7 +1446,7 @@ void stopSession() {
       dumpSavedFile(finalPath, filename);
     }
   } else {
-    emitEvent("warning", "PANIC_SAFE_MODE_SESSION_FILE_SKIPPED");
+    emitEvent("warning", "SESSION_FILE_SKIPPED");
   }
 }
 
