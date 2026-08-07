@@ -177,6 +177,7 @@ esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
 bool panicSafeMode = false;
 bool panicQueueSkipReported = false;
 bool panicSessionFileSkipReported = false;
+bool panicMeasurementSkipReported = false;
 bool sessionFileEnabled = true;
 uint32_t nextSessionFlushMs = 0;
 RTC_DATA_ATTR uint32_t crashBreadcrumb = 0;
@@ -1507,6 +1508,8 @@ String webStatusJson() {
   json += resetReasonText(bootResetReason);
   json += F("\",\"panic_safe_mode\":");
   json += panicSafeMode ? F("true") : F("false");
+  json += F(",\"measurement_enabled\":");
+  json += panicSafeMode ? F("false") : F("true");
   json += F(",\"crash_breadcrumb\":");
   json += String(crashBreadcrumb);
   json += F(",\"crash_breadcrumb_text\":\"");
@@ -1757,6 +1760,7 @@ void setup() {
   panicSafeMode = bootResetReason == ESP_RST_PANIC;
   panicQueueSkipReported = false;
   panicSessionFileSkipReported = false;
+  panicMeasurementSkipReported = false;
   sessionFileEnabled = !panicSafeMode;
   if (panicSafeMode && bootCrashBreadcrumb != BREADCRUMB_IDLE) {
     lastPanicBreadcrumb = bootCrashBreadcrumb;
@@ -1830,8 +1834,16 @@ void loop() {
 
   if (sessionActive &&
       millis() - lastReadingMs >= sessionReadingIntervalSeconds * 1000UL) {
-    emitMeasurement();
-    lastReadingMs = millis();
+    if (panicSafeMode) {
+      if (!panicMeasurementSkipReported) {
+        emitEvent("warning", "PANIC_SAFE_MODE_MEASUREMENT_DISABLED");
+        panicMeasurementSkipReported = true;
+      }
+      lastReadingMs = millis();
+    } else {
+      emitMeasurement();
+      lastReadingMs = millis();
+    }
   }
 
   if (webToggleRequested && millis() - webToggleRequestedAtMs >= 120UL) {
