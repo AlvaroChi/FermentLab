@@ -178,6 +178,8 @@ bool panicSafeMode = false;
 bool panicQueueSkipReported = false;
 uint32_t nextSessionFlushMs = 0;
 RTC_DATA_ATTR uint32_t crashBreadcrumb = 0;
+RTC_DATA_ATTR uint32_t lastPanicBreadcrumb = 0;
+uint32_t bootCrashBreadcrumb = 0;
 
 constexpr uint32_t BREADCRUMB_IDLE = 100;
 constexpr uint32_t BREADCRUMB_START_BEGIN = 200;
@@ -1490,6 +1492,14 @@ String webStatusJson() {
   json += String(crashBreadcrumb);
   json += F(",\"crash_breadcrumb_text\":\"");
   json += crashBreadcrumbText(crashBreadcrumb);
+  json += F("\",\"boot_crash_breadcrumb\":");
+  json += String(bootCrashBreadcrumb);
+  json += F(",\"boot_crash_breadcrumb_text\":\"");
+  json += crashBreadcrumbText(bootCrashBreadcrumb);
+  json += F("\",\"last_panic_breadcrumb\":");
+  json += String(lastPanicBreadcrumb);
+  json += F(",\"last_panic_breadcrumb_text\":\"");
+  json += crashBreadcrumbText(lastPanicBreadcrumb);
   json += F("\",\"free_heap_bytes\":");
   json += String(ESP.getFreeHeap());
   json += F(",\"session_active\":");
@@ -1722,8 +1732,12 @@ void setup() {
   delay(Config::STARTUP_UPLOAD_GRACE_MS);
 
   bootResetReason = esp_reset_reason();
+  bootCrashBreadcrumb = crashBreadcrumb;
   panicSafeMode = bootResetReason == ESP_RST_PANIC;
   panicQueueSkipReported = false;
+  if (panicSafeMode && bootCrashBreadcrumb != BREADCRUMB_IDLE) {
+    lastPanicBreadcrumb = bootCrashBreadcrumb;
+  }
   setCrashBreadcrumb(BREADCRUMB_IDLE);
   if (panicSafeMode) {
     emitEvent("warning", "PANIC_SAFE_MODE_ENABLED");
