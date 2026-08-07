@@ -1329,13 +1329,27 @@ void startSession() {
   }
 
   if (panicSafeMode) {
-    // Keep recovery mode deliberately minimal: avoid config parsing and
-    // START metadata assembly until the panic root cause is removed.
-    const uint32_t nowMs = millis();
-    snprintf(sessionStartDate, sizeof(sessionStartDate), "00000000");
-    snprintf(sessionStartTime, sizeof(sessionStartTime), "000000");
-    snprintf(sessionId, sizeof(sessionId), "panic-%010lu-%s",
-             static_cast<unsigned long>(nowMs), deviceId);
+    const time_t startTimestamp = time(nullptr);
+    char isoTimestamp[40] = {};
+    if (startTimestamp < Config::MIN_VALID_EPOCH ||
+        !formatLocalTime(startTimestamp, isoTimestamp, sizeof(isoTimestamp),
+                         sessionStartDate, sizeof(sessionStartDate),
+                         sessionStartTime, sizeof(sessionStartTime))) {
+      emitEvent("error", "SESSION_REJECTED_TIME_UNAVAILABLE");
+      return;
+    }
+    snprintf(sessionId, sizeof(sessionId), "%s-%s-%s", sessionStartDate,
+             sessionStartTime, deviceId);
+    sessionReadingIntervalSeconds = Config::DEFAULT_READING_INTERVAL_S;
+    sequenceNumber = 0;
+    nextSessionFlushMs = millis() + 5000UL;
+    sessionStartMs = millis();
+    sessionActive = true;
+    setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
+    emitEvent("warning", "PANIC_SAFE_MODE_MINIMAL_START");
+    lastReadingMs = millis();
+    (void)startTimestamp;
+    (void)isoTimestamp;
     sessionFileEnabled = false;
     activeFilePath[0] = '\0';
     if (!panicSessionFileSkipReported) {
@@ -1344,14 +1358,6 @@ void startSession() {
     }
     baselineAvailable = false;
     baselineDistanceMm = NAN;
-    sessionReadingIntervalSeconds = Config::DEFAULT_READING_INTERVAL_S;
-    sequenceNumber = 0;
-    nextSessionFlushMs = nowMs + 5000UL;
-    sessionStartMs = nowMs;
-    sessionActive = true;
-    setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
-    emitEvent("warning", "PANIC_SAFE_MODE_MINIMAL_START");
-    lastReadingMs = nowMs;
     return;
   }
 
