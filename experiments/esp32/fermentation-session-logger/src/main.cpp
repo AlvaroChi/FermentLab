@@ -1504,6 +1504,56 @@ String webStatusJson() {
   const bool timeValid =
       timestamp >= Config::MIN_VALID_EPOCH &&
       formatLocalTime(timestamp, isoTimestamp, sizeof(isoTimestamp));
+
+  if (panicSafeMode) {
+    String json;
+    json.reserve(448);
+    json += F("{\"device_id\":\"");
+    json += deviceId;
+    json += F("\",\"board_profile\":\"");
+    json += Config::BOARD_PROFILE;
+    json += F("\",\"reset_reason\":\"");
+    json += resetReasonText(bootResetReason);
+    json += F("\",\"panic_safe_mode\":true");
+    json += F(",\"measurement_enabled\":false");
+    json += F(",\"session_file_enabled\":");
+    json += sessionFileEnabled ? F("true") : F("false");
+    json += F(",\"session_active\":");
+    json += sessionActive ? F("true") : F("false");
+    json += F(",\"session_id\":");
+    if (sessionActive) {
+      appendJsonString(json, String(sessionId));
+    } else {
+      json += F("null");
+    }
+    json += F(",\"time_valid\":");
+    json += timeValid ? F("true") : F("false");
+    json += F(",\"timestamp\":");
+    if (timeValid) {
+      appendJsonString(json, String(isoTimestamp));
+    } else {
+      json += F("null");
+    }
+    json += F(",\"storage_ready\":");
+    json += storageReady ? F("true") : F("false");
+    json += F(",\"telemetry_queue_ready\":");
+    json += telemetryQueueReady ? F("true") : F("false");
+    json += F(",\"distance_sensor_ready\":");
+    json += distanceSensorReady ? F("true") : F("false");
+    json += F(",\"ambient_sensor_ready\":");
+    json += ambientSensorReady ? F("true") : F("false");
+    json += F(",\"dough_sensor_ready\":");
+    json += doughSensorReady ? F("true") : F("false");
+    json += F(",\"ip\":\"");
+    json += WiFi.localIP().toString();
+    json += F("\",\"uptime_s\":");
+    json += String(millis() / 1000UL);
+    json += F(",\"free_heap_bytes\":");
+    json += String(ESP.getFreeHeap());
+    json += F("}");
+    return json;
+  }
+
   char lastMeasurementIso[40] = {};
   const bool lastMeasurementAvailable =
       lastMeasurementTimestamp >= Config::MIN_VALID_EPOCH &&
