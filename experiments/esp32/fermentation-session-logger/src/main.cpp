@@ -176,6 +176,8 @@ uint8_t statusLedBlue = 0;
 esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
 bool panicSafeMode = false;
 bool panicQueueSkipReported = false;
+bool panicSessionFileSkipReported = false;
+bool sessionFileEnabled = true;
 uint32_t nextSessionFlushMs = 0;
 RTC_DATA_ATTR uint32_t crashBreadcrumb = 0;
 RTC_DATA_ATTR uint32_t lastPanicBreadcrumb = 0;
@@ -1251,12 +1253,14 @@ void emitMeasurement() {
 
   writeMeasurement(Serial);
   setCrashBreadcrumb(BREADCRUMB_MEASURE_SERIAL);
-  writeMeasurement(sessionFile);
-  setCrashBreadcrumb(BREADCRUMB_MEASURE_FILE);
+  if (sessionFileEnabled && sessionFile) {
+    writeMeasurement(sessionFile);
+    setCrashBreadcrumb(BREADCRUMB_MEASURE_FILE);
 
-  if (!panicSafeMode && millis() >= nextSessionFlushMs) {
-    sessionFile.flush();
-    nextSessionFlushMs = millis() + 5000UL;
+    if (!panicSafeMode && millis() >= nextSessionFlushMs) {
+      sessionFile.flush();
+      nextSessionFlushMs = millis() + 5000UL;
+    }
   }
 
   TelemetryRecord record;
@@ -1345,13 +1349,23 @@ void startSession() {
 
   snprintf(sessionId, sizeof(sessionId), "%s-%s-%s", sessionStartDate,
            sessionStartTime, deviceId);
-  snprintf(activeFilePath, sizeof(activeFilePath), "/%s.partial.jsonl",
-           sessionId);
-  setCrashBreadcrumb(BREADCRUMB_START_FILE_OPEN);
-  sessionFile = LittleFS.open(activeFilePath, FILE_WRITE);
-  if (!sessionFile) {
-    emitEvent("error", "SESSION_FILE_OPEN_FAILED");
-    return;
+  if (panicSafeMode) {
+    sessionFileEnabled = false;
+    activeFilePath[0] = '\0';
+    if (!panicSessionFileSkipReported) {
+      emitEvent("warning", "PANIC_SAFE_MODE_SESSION_FILE_DISABLED");
+      panicSessionFileSkipReported = true;
+    }
+  } else {
+    sessionFileEnabled = true;
+    snprintf(activeFilePath, sizeof(activeFilePath), "/%s.partial.jsonl",
+             sessionId);
+    setCrashBreadcrumb(BREADCRUMB_START_FILE_OPEN);
+    sessionFile = LittleFS.open(activeFilePath, FILE_WRITE);
+    if (!sessionFile) {
+      emitEvent("error", "SESSION_FILE_OPEN_FAILED");
+      return;
+    }
   }
   baselineAvailable = false;
   baselineDistanceMm = NAN;
@@ -1404,23 +1418,28 @@ void stopSession() {
     output.println(F("\"}"));
   };
   writeSessionEnd(Serial);
-  writeSessionEnd(sessionFile);
-  sessionFile.flush();
-  const size_t savedBytes = sessionFile.size();
-  sessionFile.close();
-  Serial.flush();
+  size_t savedBytes = 0;
+  if (sessionFileEnabled && sessionFile) {
+    writeSessionEnd(sessionFile);
+    sessionFile.flush();
+    savedBytes = sessionFile.size();
+    sessionFile.close();
+    Serial.flush();
 
-  if (!LittleFS.rename(activeFilePath, finalPath)) {
-    emitEvent("error", "SESSION_FILE_RENAME_FAILED");
+    if (!LittleFS.rename(activeFilePath, finalPath)) {
+      emitEvent("error", "SESSION_FILE_RENAME_FAILED");
+    } else {
+      Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"file_saved\",\"device_id\":\""));
+      Serial.print(deviceId);
+      Serial.print(F("\",\"filename\":\""));
+      Serial.print(filename);
+      Serial.print(F("\",\"bytes\":"));
+      Serial.print(savedBytes);
+      Serial.println(F("}"));
+      dumpSavedFile(finalPath, filename);
+    }
   } else {
-    Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"file_saved\",\"device_id\":\""));
-    Serial.print(deviceId);
-    Serial.print(F("\",\"filename\":\""));
-    Serial.print(filename);
-    Serial.print(F("\",\"bytes\":"));
-    Serial.print(savedBytes);
-    Serial.println(F("}"));
-    dumpSavedFile(finalPath, filename);
+    emitEvent("warning", "PANIC_SAFE_MODE_SESSION_FILE_SKIPPED");
   }
 }
 
@@ -1526,6 +1545,8 @@ String webStatusJson() {
   json += storageReady ? F("true") : F("false");
   json += F(",\"telemetry_queue_ready\":");
   json += telemetryQueueReady ? F("true") : F("false");
+  json += F(",\"session_file_enabled\":");
+  json += sessionFileEnabled ? F("true") : F("false");
   json += F(",\"distance_sensor_ready\":");
   json += distanceSensorReady ? F("true") : F("false");
   json += F(",\"ambient_sensor_ready\":");
@@ -1735,6 +1756,8 @@ void setup() {
   bootCrashBreadcrumb = crashBreadcrumb;
   panicSafeMode = bootResetReason == ESP_RST_PANIC;
   panicQueueSkipReported = false;
+  panicSessionFileSkipReported = false;
+  sessionFileEnabled = !panicSafeMode;
   if (panicSafeMode && bootCrashBreadcrumb != BREADCRUMB_IDLE) {
     lastPanicBreadcrumb = bootCrashBreadcrumb;
   }
