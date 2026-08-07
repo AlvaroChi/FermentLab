@@ -174,6 +174,21 @@ uint8_t statusLedRed = 0;
 uint8_t statusLedGreen = 0;
 uint8_t statusLedBlue = 0;
 esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
+bool panicSafeMode = false;
+bool panicQueueSkipReported = false;
+uint32_t nextSessionFlushMs = 0;
+RTC_DATA_ATTR uint32_t crashBreadcrumb = 0;
+
+constexpr uint32_t BREADCRUMB_IDLE = 100;
+constexpr uint32_t BREADCRUMB_START_BEGIN = 200;
+constexpr uint32_t BREADCRUMB_START_FILE_OPEN = 210;
+constexpr uint32_t BREADCRUMB_START_ACTIVE = 220;
+constexpr uint32_t BREADCRUMB_MEASURE_BEGIN = 300;
+constexpr uint32_t BREADCRUMB_MEASURE_SENSORS = 310;
+constexpr uint32_t BREADCRUMB_MEASURE_SERIAL = 320;
+constexpr uint32_t BREADCRUMB_MEASURE_FILE = 330;
+constexpr uint32_t BREADCRUMB_MEASURE_QUEUE = 340;
+constexpr uint32_t BREADCRUMB_MEASURE_DONE = 399;
 
 enum class StatusLedPattern : uint8_t {
   Off,
@@ -270,6 +285,37 @@ const char* resetReasonText(esp_reset_reason_t reason) {
       return "BROWNOUT";
     case ESP_RST_SDIO:
       return "SDIO";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+void setCrashBreadcrumb(uint32_t code) {
+  crashBreadcrumb = code;
+}
+
+const char* crashBreadcrumbText(uint32_t code) {
+  switch (code) {
+    case BREADCRUMB_IDLE:
+      return "IDLE";
+    case BREADCRUMB_START_BEGIN:
+      return "START_BEGIN";
+    case BREADCRUMB_START_FILE_OPEN:
+      return "START_FILE_OPEN";
+    case BREADCRUMB_START_ACTIVE:
+      return "START_ACTIVE";
+    case BREADCRUMB_MEASURE_BEGIN:
+      return "MEASURE_BEGIN";
+    case BREADCRUMB_MEASURE_SENSORS:
+      return "MEASURE_SENSORS";
+    case BREADCRUMB_MEASURE_SERIAL:
+      return "MEASURE_SERIAL";
+    case BREADCRUMB_MEASURE_FILE:
+      return "MEASURE_FILE";
+    case BREADCRUMB_MEASURE_QUEUE:
+      return "MEASURE_QUEUE";
+    case BREADCRUMB_MEASURE_DONE:
+      return "MEASURE_DONE";
     default:
       return "UNKNOWN";
   }
@@ -1100,6 +1146,7 @@ void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
 }
 
 void emitMeasurement() {
+  setCrashBreadcrumb(BREADCRUMB_MEASURE_BEGIN);
   const time_t timestamp = time(nullptr);
   char isoTimestamp[40] = {};
   if (timestamp < Config::MIN_VALID_EPOCH ||
@@ -1111,6 +1158,7 @@ void emitMeasurement() {
   const DoughReading dough = currentDoughReading();
   const AmbientReading ambient = readAmbientMeasurement();
   const FilteredDistance distance = acquireFilteredDistance();
+  setCrashBreadcrumb(BREADCRUMB_MEASURE_SENSORS);
 
   float correctedDistanceMm = NAN;
   float growthMm = NAN;
@@ -1200,8 +1248,14 @@ void emitMeasurement() {
   };
 
   writeMeasurement(Serial);
+  setCrashBreadcrumb(BREADCRUMB_MEASURE_SERIAL);
   writeMeasurement(sessionFile);
-  sessionFile.flush();
+  setCrashBreadcrumb(BREADCRUMB_MEASURE_FILE);
+
+  if (!panicSafeMode && millis() >= nextSessionFlushMs) {
+    sessionFile.flush();
+    nextSessionFlushMs = millis() + 5000UL;
+  }
 
   TelemetryRecord record;
   record.deviceId = deviceId;
@@ -1215,11 +1269,18 @@ void emitMeasurement() {
   record.distanceMm = correctedDistanceMm;
   record.doughHeightMm = doughHeightMm;
   record.volumeMl = volumeMl;
-  if (!telemetryQueueReady ||
-      !telemetryQueue.enqueue(toInfluxLineProtocol(record))) {
+  setCrashBreadcrumb(BREADCRUMB_MEASURE_QUEUE);
+  if (panicSafeMode) {
+    if (!panicQueueSkipReported) {
+      emitEvent("warning", "PANIC_SAFE_MODE_QUEUE_DISABLED");
+      panicQueueSkipReported = true;
+    }
+  } else if (!telemetryQueueReady ||
+             !telemetryQueue.enqueue(toInfluxLineProtocol(record))) {
     emitEvent("error", "TELEMETRY_QUEUE_WRITE_FAILED");
   }
   lastMeasurementTimestamp = timestamp;
+  setCrashBreadcrumb(BREADCRUMB_MEASURE_DONE);
 }
 
 void dumpSavedFile(const char* path, const char* filename) {
@@ -1249,6 +1310,7 @@ void dumpSavedFile(const char* path, const char* filename) {
 }
 
 void startSession() {
+  setCrashBreadcrumb(BREADCRUMB_START_BEGIN);
   if (sessionActive) {
     return;
   }
@@ -1283,6 +1345,7 @@ void startSession() {
            sessionStartTime, deviceId);
   snprintf(activeFilePath, sizeof(activeFilePath), "/%s.partial.jsonl",
            sessionId);
+  setCrashBreadcrumb(BREADCRUMB_START_FILE_OPEN);
   sessionFile = LittleFS.open(activeFilePath, FILE_WRITE);
   if (!sessionFile) {
     emitEvent("error", "SESSION_FILE_OPEN_FAILED");
@@ -1293,8 +1356,10 @@ void startSession() {
   sessionReadingIntervalSeconds =
       sessionConfigStore.draftReadingIntervalSeconds();
   sequenceNumber = 0;
+  nextSessionFlushMs = millis() + 5000UL;
   sessionStartMs = millis();
   sessionActive = true;
+  setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
   emitSessionStart(startTimestamp, isoTimestamp);
   // Start with a clean interval window. Triggering a measurement immediately
   // after START was causing a panic on some boards during filesystem writes.
@@ -1419,6 +1484,14 @@ String webStatusJson() {
   json += Config::BOARD_PROFILE;
   json += F("\",\"reset_reason\":\"");
   json += resetReasonText(bootResetReason);
+  json += F("\",\"panic_safe_mode\":");
+  json += panicSafeMode ? F("true") : F("false");
+  json += F(",\"crash_breadcrumb\":");
+  json += String(crashBreadcrumb);
+  json += F(",\"crash_breadcrumb_text\":\"");
+  json += crashBreadcrumbText(crashBreadcrumb);
+  json += F("\",\"free_heap_bytes\":");
+  json += String(ESP.getFreeHeap());
   json += F("\",\"session_active\":");
   json += sessionActive ? F("true") : F("false");
   json += F(",\"session_id\":");
@@ -1649,6 +1722,12 @@ void setup() {
   delay(Config::STARTUP_UPLOAD_GRACE_MS);
 
   bootResetReason = esp_reset_reason();
+  panicSafeMode = bootResetReason == ESP_RST_PANIC;
+  panicQueueSkipReported = false;
+  setCrashBreadcrumb(BREADCRUMB_IDLE);
+  if (panicSafeMode) {
+    emitEvent("warning", "PANIC_SAFE_MODE_ENABLED");
+  }
 
   initializeStatusLed();
 
