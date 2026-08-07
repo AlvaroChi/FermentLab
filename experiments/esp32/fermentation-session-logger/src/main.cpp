@@ -1329,6 +1329,34 @@ void startSession() {
     emitEvent("error", "SESSION_REJECTED_SENSOR_NOT_READY");
     return;
   }
+
+  if (panicSafeMode) {
+    // Keep recovery mode deliberately minimal: avoid config parsing and
+    // START metadata assembly until the panic root cause is removed.
+    const uint32_t nowMs = millis();
+    snprintf(sessionStartDate, sizeof(sessionStartDate), "00000000");
+    snprintf(sessionStartTime, sizeof(sessionStartTime), "000000");
+    snprintf(sessionId, sizeof(sessionId), "panic-%010lu-%s",
+             static_cast<unsigned long>(nowMs), deviceId);
+    sessionFileEnabled = false;
+    activeFilePath[0] = '\0';
+    if (!panicSessionFileSkipReported) {
+      emitEvent("warning", "PANIC_SAFE_MODE_SESSION_FILE_DISABLED");
+      panicSessionFileSkipReported = true;
+    }
+    baselineAvailable = false;
+    baselineDistanceMm = NAN;
+    sessionReadingIntervalSeconds = Config::DEFAULT_READING_INTERVAL_S;
+    sequenceNumber = 0;
+    nextSessionFlushMs = nowMs + 5000UL;
+    sessionStartMs = nowMs;
+    sessionActive = true;
+    setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
+    emitEvent("warning", "PANIC_SAFE_MODE_MINIMAL_START");
+    lastReadingMs = nowMs;
+    return;
+  }
+
   String recipeError;
   if (!recipeConfigReady || !sessionConfigStore.draftValid(&recipeError)) {
     emitEvent("error", "SESSION_REJECTED_RECIPE_NOT_READY");
