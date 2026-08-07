@@ -72,6 +72,7 @@ uint8_t ambientSensorAddress = Config::SHT3X_DEFAULT_I2C_ADDRESS;
 
 bool sessionActive = false;
 bool webToggleRequested = false;
+uint32_t webToggleRequestedAtMs = 0;
 bool baselineAvailable = false;
 float baselineDistanceMm = NAN;
 uint32_t sessionStartMs = 0;
@@ -1464,8 +1465,11 @@ String webTestJson() {
 }
 
 String toggleSessionFromWeb() {
+  if (!webToggleRequested) {
+    webToggleRequestedAtMs = millis();
+  }
   webToggleRequested = true;
-  return webStatusJson();
+  return F("{\"ok\":true,\"queued\":true}");
 }
 
 String configurationLockedJson() {
@@ -1566,6 +1570,10 @@ void loop() {
     lastReadingMs = millis();
   }
 
+  if (webToggleRequested && millis() - webToggleRequestedAtMs >= 120UL) {
+    webToggleRequested = false;
+    toggleSession();
+  }
   if (telemetryQueueReady) {
     const InfluxUploadEvent uploadEvent = influxUploader.tick();
     if (uploadEvent == InfluxUploadEvent::Sent) {
@@ -1578,10 +1586,6 @@ void loop() {
       influxFailureActive = true;
       emitEvent("error", "INFLUX_CONFIGURATION_MISSING");
     }
-  }
-  if (webToggleRequested) {
-    webToggleRequested = false;
-    toggleSession();
   }
   updateStatusLed();
   delay(2);
