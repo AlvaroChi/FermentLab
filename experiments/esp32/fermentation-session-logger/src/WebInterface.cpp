@@ -22,7 +22,8 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
     h1{font-size:clamp(28px,7vw,46px);letter-spacing:-.04em;margin:0}.eyebrow{color:var(--green);font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
     .badge{border:1px solid var(--line);border-radius:999px;padding:8px 12px;color:var(--muted);white-space:nowrap}.badge.on{border-color:#327850;color:var(--green)}
     .panel{background:rgba(24,35,30,.92);border:1px solid var(--line);border-radius:20px;padding:20px;box-shadow:0 18px 50px #0005;margin-bottom:16px}
-    .session{display:flex;align-items:center;justify-content:space-between;gap:16px}.session h2,.panel h2{margin:0 0 4px;font-size:20px}.muted{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+    .session{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;align-items:start}.session h2,.panel h2{margin:0 0 4px;font-size:20px}.muted{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+    .session-head{display:flex;flex-direction:column;gap:10px}.next-dough{border:1px solid var(--line);border-radius:16px;background:#101814;padding:14px}.next-dough .label{color:var(--muted);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.next-dough strong{display:block;font-size:17px;margin-top:5px}.next-dough .sub{margin-top:4px;color:var(--muted);font-size:13px}
     .actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}button{appearance:none;border:0;border-radius:14px;padding:15px 18px;font:inherit;font-weight:800;cursor:pointer;transition:.15s transform,.15s opacity}
     button:active{transform:scale(.98)}button:disabled{opacity:.45;cursor:wait}.test{background:#e8efe9;color:#152019}.toggle{background:var(--green);color:#102017}.toggle.stop{background:var(--red);color:#2b0d0d}
     .config-link{grid-column:1/-1;display:block;border:1px solid var(--line);border-radius:14px;padding:14px 18px;text-align:center;color:var(--text);background:#101814;text-decoration:none;font-weight:800}.config-link:hover{border-color:var(--green)}
@@ -36,8 +37,20 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
 <main>
   <header><div><div class="eyebrow">ESP32 local control</div><h1>FermentLab</h1></div><div class="header-actions"><a class="nav" href="/config">Impasto e farine</a><div id="connection" class="badge">Connessione...</div></div></header>
   <section class="panel">
-    <div class="session"><div><h2 id="sessionTitle">Sessione ferma</h2><div id="sessionId" class="muted">Nessuna sessione attiva</div></div><div id="time" class="muted"></div></div>
-    <div class="actions"><button id="testButton" class="test">Test lettura</button><button id="toggleButton" class="toggle">START</button><a class="config-link" href="/config">Configura prossimo impasto, farine e preset →</a></div>
+    <div class="session">
+      <div class="session-head">
+        <div><h2 id="sessionTitle">Sessione ferma</h2><div id="sessionId" class="muted">Nessuna sessione attiva</div></div>
+        <div class="next-dough">
+          <div class="label">Prossimo impasto</div>
+          <strong id="draftName">—</strong>
+          <div id="draftRecipe" class="sub">—</div>
+        </div>
+      </div>
+      <div>
+        <div id="time" class="muted"></div>
+        <div class="actions"><button id="testButton" class="test">Test lettura</button><button id="toggleButton" class="toggle">START</button><a class="config-link" href="/config">Configura prossimo impasto, farine e preset →</a></div>
+      </div>
+    </div>
     <div id="notice" class="notice"></div>
     <div id="startBlocker" class="start-blocker"></div>
   </section>
@@ -60,7 +73,6 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
     <div><span>Letture in coda</span><span id="queue">—</span></div><div><span>Orologio</span><span id="clock">—</span></div>
     <div><span>Sensori</span><span id="sensors">—</span></div><div><span>LittleFS / coda</span><span id="storage">—</span></div>
     <div><span>Bus I²C</span><span id="i2cBus">—</span></div><div><span>Indirizzi I²C</span><span id="i2cAddresses">—</span></div>
-    <div><span>Prossimo impasto</span><span id="draftName">—</span></div><div><span>Farina / idratazione</span><span id="draftRecipe">—</span></div>
   </section>
 </main>
 <script>
