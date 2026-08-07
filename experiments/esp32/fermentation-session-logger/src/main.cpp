@@ -1492,7 +1492,7 @@ String webStatusJson() {
   json += crashBreadcrumbText(crashBreadcrumb);
   json += F("\",\"free_heap_bytes\":");
   json += String(ESP.getFreeHeap());
-  json += F("\",\"session_active\":");
+  json += F(",\"session_active\":");
   json += sessionActive ? F("true") : F("false");
   json += F(",\"session_id\":");
   if (sessionActive) {
