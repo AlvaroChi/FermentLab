@@ -150,11 +150,18 @@ InfluxUploadEvent InfluxUploader::tick() {
 
   const InfluxProfileConfig& selectedProfile =
       connectedToHomeSsid() ? NAS_PROFILE : PC_PROFILE;
-  lastHttpCode_ = profileConfigured(selectedProfile)
-                      ? postToProfile(segment, bytes, selectedProfile)
-                      : 0;
-  const bool uploadSucceeded =
+    const InfluxProfileConfig& alternateProfile =
+      connectedToHomeSsid() ? PC_PROFILE : NAS_PROFILE;
+
+    lastHttpCode_ = profileConfigured(selectedProfile)
+              ? postToProfile(segment, bytes, selectedProfile)
+              : 0;
+    bool uploadSucceeded =
       lastHttpCode_ >= 200 && lastHttpCode_ < 300;
+    if (!uploadSucceeded && profileConfigured(alternateProfile)) {
+    lastHttpCode_ = postToProfile(segment, bytes, alternateProfile);
+    uploadSucceeded = lastHttpCode_ >= 200 && lastHttpCode_ < 300;
+    }
 
   segment.close();
 
