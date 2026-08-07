@@ -123,6 +123,8 @@ float lastDoughTemperatureC = NAN;
 uint8_t ambientSensorAddress = Config::SHT3X_DEFAULT_I2C_ADDRESS;
 
 bool sessionActive = false;
+bool webToggleRequested = false;
+uint32_t webToggleRequestedAtMs = 0;
 bool baselineAvailable = false;
 float baselineDistanceMm = NAN;
 uint32_t sessionStartMs = 0;
@@ -1577,11 +1579,11 @@ String webTestJson() {
 }
 
 String toggleSessionFromWeb() {
-  toggleSession();
-  String response = F("{\"ok\":true,\"queued\":false,\"session_active\":");
-  response += sessionActive ? F("true") : F("false");
-  response += F("}");
-  return response;
+  if (!webToggleRequested) {
+    webToggleRequestedAtMs = millis();
+  }
+  webToggleRequested = true;
+  return F("{\"ok\":true,\"queued\":true}");
 }
 
 String configurationLockedJson() {
@@ -1682,6 +1684,10 @@ void loop() {
     lastReadingMs = millis();
   }
 
+  if (webToggleRequested && millis() - webToggleRequestedAtMs >= 120UL) {
+    webToggleRequested = false;
+    toggleSession();
+  }
   if (telemetryQueueReady) {
     const InfluxUploadEvent uploadEvent = influxUploader.tick();
     if (uploadEvent == InfluxUploadEvent::Sent) {
