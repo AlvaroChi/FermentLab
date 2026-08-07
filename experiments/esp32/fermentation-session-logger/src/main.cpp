@@ -1348,14 +1348,10 @@ void startSession() {
     sessionStartMs = millis();
     sessionActive = true;
     setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
-    emitEvent("warning", "PANIC_SAFE_MODE_MINIMAL_START");
     lastReadingMs = millis();
     sessionFileEnabled = false;
     activeFilePath[0] = '\0';
-    if (!panicSessionFileSkipReported) {
-      emitEvent("warning", "PANIC_SAFE_MODE_SESSION_FILE_DISABLED");
-      panicSessionFileSkipReported = true;
-    }
+    panicSessionFileSkipReported = true;
     baselineAvailable = false;
     baselineDistanceMm = NAN;
     return;
