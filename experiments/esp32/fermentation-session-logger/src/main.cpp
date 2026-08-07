@@ -6,6 +6,7 @@
 #include <VL53L0X.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <esp_system.h>
 
 #include <algorithm>
 #include <cmath>
@@ -172,6 +173,7 @@ bool statusLedOn = false;
 uint8_t statusLedRed = 0;
 uint8_t statusLedGreen = 0;
 uint8_t statusLedBlue = 0;
+esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
 
 enum class StatusLedPattern : uint8_t {
   Off,
@@ -245,6 +247,33 @@ struct DoughReading {
   float temperatureC = NAN;
   DoughStatus status = DoughStatus::SensorNotReady;
 };
+
+const char* resetReasonText(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON:
+      return "POWERON";
+    case ESP_RST_EXT:
+      return "EXTERNAL";
+    case ESP_RST_SW:
+      return "SOFTWARE";
+    case ESP_RST_PANIC:
+      return "PANIC";
+    case ESP_RST_INT_WDT:
+      return "INT_WDT";
+    case ESP_RST_TASK_WDT:
+      return "TASK_WDT";
+    case ESP_RST_WDT:
+      return "WDT";
+    case ESP_RST_DEEPSLEEP:
+      return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT:
+      return "BROWNOUT";
+    case ESP_RST_SDIO:
+      return "SDIO";
+    default:
+      return "UNKNOWN";
+  }
+}
 
 void printJsonFloat(Print& output, float value, uint8_t decimals = 3) {
   if (isnan(value) || isinf(value)) {
@@ -1388,6 +1417,8 @@ String webStatusJson() {
   json += deviceId;
   json += F("\",\"board_profile\":\"");
   json += Config::BOARD_PROFILE;
+  json += F("\",\"reset_reason\":\"");
+  json += resetReasonText(bootResetReason);
   json += F("\",\"session_active\":");
   json += sessionActive ? F("true") : F("false");
   json += F(",\"session_id\":");
@@ -1616,6 +1647,8 @@ String importConfigFromWeb(const String& body) {
 void setup() {
   Serial.begin(Config::SERIAL_BAUD);
   delay(Config::STARTUP_UPLOAD_GRACE_MS);
+
+  bootResetReason = esp_reset_reason();
 
   initializeStatusLed();
 
