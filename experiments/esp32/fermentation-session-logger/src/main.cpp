@@ -1296,9 +1296,9 @@ void startSession() {
   sessionStartMs = millis();
   sessionActive = true;
   emitSessionStart(startTimestamp, isoTimestamp);
-  // Defer the first measurement to the main loop so the HTTP toggle handler
-  // returns quickly and the web UI doesn't see intermittent network errors.
-  lastReadingMs = millis() - sessionReadingIntervalSeconds * 1000UL;
+  // Start with a clean interval window. Triggering a measurement immediately
+  // after START was causing a panic on some boards during filesystem writes.
+  lastReadingMs = millis();
 }
 
 void stopSession() {
