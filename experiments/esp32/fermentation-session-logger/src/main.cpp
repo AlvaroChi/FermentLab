@@ -1330,16 +1330,18 @@ void startSession() {
 
   if (panicSafeMode) {
     const time_t startTimestamp = time(nullptr);
-    char isoTimestamp[40] = {};
     if (startTimestamp < Config::MIN_VALID_EPOCH ||
-        !formatLocalTime(startTimestamp, isoTimestamp, sizeof(isoTimestamp),
-                         sessionStartDate, sizeof(sessionStartDate),
-                         sessionStartTime, sizeof(sessionStartTime))) {
+        startTimestamp < 0) {
       emitEvent("error", "SESSION_REJECTED_TIME_UNAVAILABLE");
       return;
     }
-    snprintf(sessionId, sizeof(sessionId), "%s-%s-%s", sessionStartDate,
-             sessionStartTime, deviceId);
+    const unsigned long epochValue = static_cast<unsigned long>(startTimestamp);
+    snprintf(sessionStartDate, sizeof(sessionStartDate), "%08lu",
+         epochValue % 100000000UL);
+    snprintf(sessionStartTime, sizeof(sessionStartTime), "%06lu",
+         epochValue % 1000000UL);
+    snprintf(sessionId, sizeof(sessionId), "panic-%08lu-%s",
+         epochValue % 100000000UL, deviceId);
     sessionReadingIntervalSeconds = Config::DEFAULT_READING_INTERVAL_S;
     sequenceNumber = 0;
     nextSessionFlushMs = millis() + 5000UL;
@@ -1348,8 +1350,6 @@ void startSession() {
     setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
     emitEvent("warning", "PANIC_SAFE_MODE_MINIMAL_START");
     lastReadingMs = millis();
-    (void)startTimestamp;
-    (void)isoTimestamp;
     sessionFileEnabled = false;
     activeFilePath[0] = '\0';
     if (!panicSessionFileSkipReported) {
