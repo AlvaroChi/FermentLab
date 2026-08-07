@@ -1150,14 +1150,6 @@ void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
 
 void emitMeasurement() {
   setCrashBreadcrumb(BREADCRUMB_MEASURE_BEGIN);
-  const time_t timestamp = time(nullptr);
-  char isoTimestamp[40] = {};
-  if (timestamp < Config::MIN_VALID_EPOCH ||
-      !formatLocalTime(timestamp, isoTimestamp, sizeof(isoTimestamp))) {
-    emitEvent("error", "INVALID_TIMESTAMP");
-    return;
-  }
-
   const DoughReading dough = currentDoughReading();
   const AmbientReading ambient = readAmbientMeasurement();
   const FilteredDistance distance = acquireFilteredDistance();
@@ -1208,10 +1200,6 @@ void emitMeasurement() {
     output.print(sessionId);
     output.print(F("\",\"sequence\":"));
     output.print(currentSequence);
-    output.print(F(",\"timestamp\":\""));
-    output.print(isoTimestamp);
-    output.print(F("\",\"epoch_s\":"));
-    output.print(static_cast<unsigned long>(timestamp));
     output.print(F(",\"elapsed_ms\":"));
     output.print(elapsedMs);
     output.print(F(",\"ambient_temperature_c\":"));
@@ -1266,7 +1254,7 @@ void emitMeasurement() {
   record.deviceId = deviceId;
   record.sessionId = sessionId;
   record.sequence = currentSequence;
-  record.timestamp = timestamp;
+  record.timestamp = static_cast<time_t>(time(nullptr));
   record.elapsedMs = elapsedMs;
   record.doughTemperatureC = dough.temperatureC;
   record.ambientTemperatureC = ambient.temperatureC;
@@ -1284,7 +1272,7 @@ void emitMeasurement() {
              !telemetryQueue.enqueue(toInfluxLineProtocol(record))) {
     emitEvent("error", "TELEMETRY_QUEUE_WRITE_FAILED");
   }
-  lastMeasurementTimestamp = timestamp;
+  lastMeasurementTimestamp = time(nullptr);
   setCrashBreadcrumb(BREADCRUMB_MEASURE_DONE);
 }
 
