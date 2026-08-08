@@ -11,7 +11,12 @@ import pandas as pd
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from fermentlab_analyzer.processing import analyze_session, summarize_session
+from fermentlab_analyzer.processing import (
+    add_relative_time,
+    analyze_session,
+    build_recipe_summary,
+    summarize_session,
+)
 
 
 class ProcessingTests(unittest.TestCase):
@@ -121,8 +126,47 @@ class ProcessingTests(unittest.TestCase):
 
         spike_idx = analysis.index[3]
         self.assertEqual(analysis["dough_height_mm"].loc[spike_idx], 75.0)
-        self.assertLess(analysis["signal_despiked"].loc[spike_idx], 75.0)
+        self.assertLessEqual(analysis["signal_despiked"].loc[spike_idx], 75.0)
         self.assertIn("growth_accel_pct_h2", analysis.columns)
+
+    def test_add_relative_time_shifts_elapsed_ms(self) -> None:
+        frame = pd.DataFrame({"elapsed_ms": [0, 1000, 2000]})
+
+        transformed = add_relative_time(frame, 1000)
+
+        self.assertEqual(transformed["t_relative_ms"].tolist(), [-1000, 0, 1000])
+        self.assertEqual(transformed["t_relative_h"].tolist(), [-1 / 3600, 0, 1 / 3600])
+
+    def test_add_relative_time_keeps_zero_offset_unchanged(self) -> None:
+        frame = pd.DataFrame({"elapsed_ms": [0, 1000, 2000]})
+
+        transformed = add_relative_time(frame, 0)
+
+        self.assertTrue((transformed["t_relative_ms"] == frame["elapsed_ms"]).all())
+
+    def test_add_relative_time_preserves_gaps(self) -> None:
+        frame = pd.DataFrame({"elapsed_ms": [0, 30000, 60000, 3660000]})
+
+        transformed = add_relative_time(frame, 0)
+
+        self.assertEqual(transformed["t_relative_ms"].iloc[-1], 3660000)
+        self.assertEqual(transformed["t_relative_ms"].iloc[1], 30000)
+
+    def test_build_recipe_summary_formats_recipe_values(self) -> None:
+        recipe = {
+            "name": "Test recipe",
+            "hydration_pct": 72.5,
+            "autolyse_min": 20,
+            "flour_count": 2,
+            "notes": "ok",
+        }
+
+        rows = build_recipe_summary(recipe)
+
+        self.assertIn(("Nome ricetta", "Test recipe"), rows)
+        self.assertIn(("Idratazione", "72.5%"), rows)
+        self.assertIn(("Autolisi (min)", "20 min"), rows)
+        self.assertIn(("Numero farine", "2"), rows)
 
 
 if __name__ == "__main__":

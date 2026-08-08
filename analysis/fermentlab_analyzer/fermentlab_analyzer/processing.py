@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -76,6 +77,70 @@ def _despike_signal(
     cleaned = values.copy()
     cleaned.loc[outlier_mask] = median.loc[outlier_mask]
     return cleaned
+
+
+def add_relative_time(
+    measurements: pd.DataFrame,
+    offset_ms: int | float,
+) -> pd.DataFrame:
+    """Return a copy of the dataframe with relative time columns derived from elapsed_ms."""
+
+    if measurements.empty:
+        raise ValueError("Il dataframe non contiene dati.")
+    if "elapsed_ms" not in measurements:
+        raise ValueError("Serve la colonna elapsed_ms.")
+
+    frame = measurements.copy()
+    elapsed_ms = pd.to_numeric(frame["elapsed_ms"], errors="coerce")
+    frame["t_relative_ms"] = elapsed_ms - float(offset_ms)
+    frame["t_relative_h"] = frame["t_relative_ms"] / 3_600_000.0
+    return frame
+
+
+def build_recipe_summary(recipe: dict[str, object] | None) -> list[tuple[str, str]]:
+    """Return recipe metadata as display rows for the Streamlit UI."""
+
+    if not isinstance(recipe, dict) or not recipe:
+        return []
+
+    rows: list[tuple[str, str]] = []
+    for key, label in (
+        ("name", "Nome ricetta"),
+        ("preset_id", "Preset"),
+        ("total_flour_g", "Farina totale"),
+        ("hydration_pct", "Idratazione"),
+        ("salt_pct", "Sale"),
+        ("yeast_type", "Lievito"),
+        ("yeast_pct", "Lievito %"),
+        ("autolyse", "Autolisi"),
+        ("autolyse_min", "Autolisi (min)"),
+        ("initial_dough_mass_g", "Impasto iniziale"),
+        ("notes", "Note"),
+        ("flour_count", "Numero farine"),
+        ("flours_summary", "Mix farine"),
+    ):
+        if key not in recipe:
+            continue
+        value = recipe[key]
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            text = "Sì" if value else "No"
+        elif isinstance(value, (int, float)) and math.isfinite(float(value)):
+            if key in {"total_flour_g", "initial_dough_mass_g"}:
+                text = f"{float(value):.0f} g"
+            elif key in {"hydration_pct", "salt_pct", "yeast_pct"}:
+                text = f"{float(value):.1f}%"
+            elif key == "autolyse_min":
+                text = f"{float(value):.0f} min"
+            elif key == "flour_count":
+                text = f"{int(float(value))}"
+            else:
+                text = f"{float(value):.2f}"
+        else:
+            text = str(value)
+        rows.append((label, text))
+    return rows
 
 
 def analyze_session(
