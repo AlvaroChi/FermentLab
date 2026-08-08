@@ -1137,7 +1137,8 @@ String buildSessionStartLineProtocol(time_t timestamp, const char* isoTimestamp)
   return line;
 }
 
-void emitSessionStartToInflux(time_t timestamp, const char* isoTimestamp) {
+[[maybe_unused]] void emitSessionStartToInflux(time_t timestamp,
+                                               const char* isoTimestamp) {
   if (!telemetryQueueReady) {
     emitEvent("error", "SESSION_START_QUEUE_NOT_READY");
     return;
@@ -1150,7 +1151,12 @@ void emitSessionStartToInflux(time_t timestamp, const char* isoTimestamp) {
 
 void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
   writeSessionStart(Serial, timestamp, isoTimestamp);
-  emitSessionStartToInflux(timestamp, isoTimestamp);
+  // Keep START metadata out of filesystem-backed writes. Enqueuing the
+  // session_start record here reintroduced the ESP32-S3 reset that makes the
+  // browser report a network error immediately after START. Measurements are
+  // still persisted and uploaded through the regular telemetry queue.
+  (void)timestamp;
+  (void)isoTimestamp;
 }
 
 void saveSessionState() {
@@ -1494,7 +1500,8 @@ void startSession() {
   sessionActive = true;
   setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
   emitSessionStart(startTimestamp, isoTimestamp);
-  saveSessionState();
+  // Do not touch LittleFS in the START path. The resume checkpoint is written
+  // later by emitMeasurement(), outside the web command's critical window.
   // Start with a clean interval window. Triggering a measurement immediately
   // after START was causing a panic on some boards during filesystem writes.
   lastReadingMs = millis();
