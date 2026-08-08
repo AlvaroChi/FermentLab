@@ -20,7 +20,98 @@ from fermentlab_analyzer import (
 )
 
 
-st.set_page_config(page_title="FermentLab Analyzer", page_icon="🫧", layout="wide")
+st.set_page_config(
+    page_title="FermentLab · Analyzer",
+    page_icon="🫧",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+APP_CSS = """
+<style>
+    :root {
+        --fl-ink: #20332b;
+        --fl-muted: #64736c;
+        --fl-green: #247a52;
+        --fl-green-soft: #eaf5ef;
+        --fl-amber: #d28a26;
+        --fl-border: rgba(32, 51, 43, 0.12);
+    }
+    .stApp { background: #fbfcfa; }
+    .block-container {
+        max-width: 1440px;
+        padding-top: 2.2rem;
+        padding-bottom: 4rem;
+    }
+    [data-testid="stSidebar"] { background: #f3f7f4; }
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+        color: var(--fl-muted);
+    }
+    .fl-hero {
+        padding: 1.25rem 1.4rem;
+        margin-bottom: 1.25rem;
+        border: 1px solid var(--fl-border);
+        border-radius: 18px;
+        background:
+            radial-gradient(circle at 92% 10%, rgba(210,138,38,.13), transparent 28%),
+            linear-gradient(135deg, #f2f8f4 0%, #ffffff 72%);
+    }
+    .fl-eyebrow {
+        color: var(--fl-green);
+        font-size: .76rem;
+        font-weight: 750;
+        letter-spacing: .11em;
+        text-transform: uppercase;
+        margin-bottom: .35rem;
+    }
+    .fl-hero h1 {
+        color: var(--fl-ink);
+        font-size: clamp(1.8rem, 3vw, 2.55rem);
+        line-height: 1.05;
+        margin: 0 0 .55rem 0;
+    }
+    .fl-hero p {
+        color: var(--fl-muted);
+        font-size: 1rem;
+        margin: 0;
+        max-width: 780px;
+    }
+    .fl-section-title { margin: .2rem 0 1rem 0; }
+    .fl-section-title h2 {
+        color: var(--fl-ink);
+        font-size: 1.35rem;
+        margin: 0 0 .2rem 0;
+    }
+    .fl-section-title p { color: var(--fl-muted); margin: 0; }
+    [data-testid="stMetric"] {
+        min-height: 112px;
+        padding: 1rem 1.05rem;
+        border: 1px solid var(--fl-border);
+        border-radius: 14px;
+        background: #ffffff;
+        box-shadow: 0 4px 18px rgba(32, 51, 43, .035);
+    }
+    [data-testid="stMetricLabel"] { color: var(--fl-muted); }
+    [data-testid="stMetricValue"] { color: var(--fl-ink); }
+    [data-testid="stExpander"] {
+        border-color: var(--fl-border);
+        border-radius: 14px;
+        background: rgba(255,255,255,.72);
+    }
+    .stButton > button { border-radius: 10px; font-weight: 650; }
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="input"] > div { border-radius: 10px; }
+    [data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
+    @media (max-width: 700px) {
+        .block-container { padding-top: 1rem; }
+        .fl-hero { padding: 1rem; border-radius: 14px; }
+        [data-testid="stMetric"] { min-height: 96px; }
+    }
+</style>
+"""
+
+st.markdown(APP_CSS, unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -240,45 +331,165 @@ def get_compare_metric_options(analyses: list[pd.DataFrame]) -> list[tuple[str, 
     ]
 
 
+def render_section_title(title: str, subtitle: str) -> None:
+    st.markdown(
+        f"""
+        <div class="fl-section-title">
+            <h2>{title}</h2>
+            <p>{subtitle}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def style_figure(figure: go.Figure, *, height: int = 440) -> go.Figure:
+    """Apply one quiet, readable visual language to every Plotly chart."""
+
+    figure.update_layout(
+        height=height,
+        margin={"l": 24, "r": 24, "t": 64, "b": 24},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": "Inter, ui-sans-serif, system-ui, sans-serif", "color": "#35453e"},
+        title={"font": {"size": 19, "color": "#20332b"}, "x": 0.01},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+            "bgcolor": "rgba(255,255,255,.72)",
+        },
+        hoverlabel={"bgcolor": "#ffffff", "font_size": 13},
+    )
+    figure.update_xaxes(
+        showgrid=True,
+        gridcolor="rgba(32,51,43,.08)",
+        zeroline=False,
+        showline=True,
+        linecolor="rgba(32,51,43,.16)",
+    )
+    figure.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(32,51,43,.08)",
+        zeroline=False,
+        showline=False,
+    )
+    return figure
+
+
+def render_metadata(
+    metadata: dict[str, object], *, show_recipe: bool = True
+) -> None:
+    metadata_rows = []
+    for key, label in (
+        ("_time", "Avvio sessione"),
+        ("session_id", "ID sessione"),
+        ("device_id", "Dispositivo"),
+        ("schema", "Schema"),
+        ("type", "Tipo record"),
+    ):
+        if key in metadata and metadata[key] is not None:
+            metadata_rows.append((label, str(metadata[key])))
+
+    if metadata_rows:
+        st.dataframe(
+            pd.DataFrame(metadata_rows, columns=["Informazione", "Valore"]),
+            width="stretch",
+            hide_index=True,
+        )
+
+    if not show_recipe:
+        return
+
+    recipe = metadata.get("recipe", {}) if isinstance(metadata, dict) else {}
+    recipe_sections = build_recipe_sections(recipe if isinstance(recipe, dict) else None)
+    if not recipe_sections:
+        st.info("Questa sessione non contiene ancora una ricetta completa nel record di avvio.")
+        return
+
+    st.markdown("#### Ricetta")
+    recipe_tabs = st.tabs([title for title, _rows in recipe_sections])
+    for recipe_tab, (_title, rows) in zip(recipe_tabs, recipe_sections):
+        with recipe_tab:
+            st.dataframe(
+                pd.DataFrame(rows, columns=["Parametro", "Valore"]),
+                width="stretch",
+                hide_index=True,
+            )
+
+
 defaults = InfluxSettings.from_environment()
 
-st.title("FermentLab Analyzer")
-st.caption("Curve operative lette direttamente da InfluxDB, senza esportazioni manuali.")
+st.markdown(
+    """
+    <div class="fl-hero">
+        <div class="fl-eyebrow">FermentLab · controllo fermentazione</div>
+        <h1>Dal sensore a una decisione chiara.</h1>
+        <p>Analizza crescita e temperatura dell'impasto, confronta le sessioni e individua subito i cambi di ritmo.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 with st.sidebar:
-    st.header("Connessione InfluxDB")
-    url = st.text_input("URL", value=defaults.url)
-    org = st.text_input("Organizzazione", value=defaults.org)
-    bucket = st.text_input("Bucket", value=defaults.bucket)
-    measurement = st.text_input("Measurement", value=defaults.measurement)
-    token_override = st.text_input(
-        "Token InfluxDB (override facoltativo)", value="", type="password"
-    )
-    token = token_override or defaults.token
-    if defaults.token:
-        st.caption("Token caricato dall'ambiente locale.")
-    management_enabled = st.checkbox(
-        "Abilita gestione sessioni",
-        value=False,
-        help="Mostra strumenti amministrativi per info, merge e delete.",
-    )
-    if management_enabled:
-        st.caption("Per merge e delete serve un token con permessi write/delete.")
-        app_view = st.radio(
-            "Vista",
-            ["Analyzer", "Session Manager"],
-            index=0,
-        )
-    else:
-        app_view = "Analyzer"
+    st.markdown("### 🫧 FermentLab")
+    st.caption("Pannello locale di analisi")
+
     lookback_days = st.number_input(
-        "Sessioni degli ultimi giorni", min_value=1, max_value=3650, value=365
+        "Intervallo sessioni",
+        min_value=1,
+        max_value=3650,
+        value=365,
+        format="%d",
+        help="Numero di giorni passati in cui cercare le sessioni.",
     )
-    if st.button("Aggiorna dati", width="stretch"):
+    st.caption("giorni precedenti")
+    if st.button("↻  Aggiorna dati", width="stretch", type="primary"):
         st.cache_data.clear()
 
+    with st.expander("Connessione InfluxDB", expanded=not bool(defaults.token)):
+        url = st.text_input("Indirizzo server", value=defaults.url)
+        org = st.text_input("Organizzazione", value=defaults.org)
+        bucket = st.text_input("Bucket", value=defaults.bucket)
+        measurement = st.text_input("Measurement", value=defaults.measurement)
+        token_override = st.text_input(
+            "Token (override)",
+            value="",
+            type="password",
+            help="Lascia vuoto per usare il token configurato nell'ambiente locale.",
+        )
+        token = token_override or defaults.token
+        if defaults.token:
+            st.success("Credenziali locali caricate", icon="✅")
+        else:
+            st.caption("Il token resta nella sessione corrente e non viene salvato.")
+
+    st.divider()
+    management_enabled = st.toggle(
+        "Strumenti amministrativi",
+        value=False,
+        help="Abilita diagnostica, unione e cancellazione delle sessioni.",
+    )
+    app_view = (
+        st.radio(
+            "Area di lavoro",
+            ["Analisi", "Gestione sessioni"],
+            index=0,
+        )
+        if management_enabled
+        else "Analisi"
+    )
+    if management_enabled:
+        st.caption("Unione e cancellazione richiedono permessi di scrittura.")
+
 if not token:
-    st.info("Inserisci un token InfluxDB. Per merge e delete servono anche permessi write/delete.")
+    render_section_title(
+        "Collega il database",
+        "Apri “Connessione InfluxDB” nella barra laterale e inserisci il token per iniziare.",
+    )
+    st.info("La configurazione resta locale e il token non viene salvato dall'app.", icon="🔒")
     st.stop()
 
 try:
@@ -298,9 +509,11 @@ session_labels = {
     for row in sessions.itertuples()
 }
 
-if app_view == "Session Manager":
-    st.subheader("Session Manager")
-    st.caption("Filtro rapido delle sessioni sospette o di test, preview merge e cancellazione definitiva.")
+if app_view == "Gestione sessioni":
+    render_section_title(
+        "Gestione sessioni",
+        "Controlla le anomalie, unisci sessioni spezzate o rimuovi dati non validi.",
+    )
 
     with st.spinner("Carico il catalogo amministrativo delle sessioni..."):
         management_catalog = load_management_catalog(
@@ -389,7 +602,9 @@ if app_view == "Session Manager":
         int(lookback_days),
     )
 
-    info_tab, merge_tab, delete_tab = st.tabs(["Info", "Merge", "Delete"])
+    info_tab, merge_tab, delete_tab = st.tabs(
+        ["Informazioni", "Unisci sessioni", "Elimina"]
+    )
 
     with info_tab:
         info_rows = build_admin_info_rows(admin_info)
@@ -457,7 +672,11 @@ if app_view == "Session Manager":
                 help=f"Scrivi esattamente: {merge_phrase}",
                 key=f"manager_merge_confirmation_{managed_session_id}",
             )
-            if st.button("Esegui merge", key=f"manager_merge_button_{managed_session_id}"):
+            if st.button(
+                "Unisci le sessioni",
+                key=f"manager_merge_button_{managed_session_id}",
+                type="primary",
+            ):
                 if merge_confirmation.strip() != merge_phrase:
                     st.error("Conferma non valida. Copia la frase completa prima di procedere.")
                 else:
@@ -491,7 +710,11 @@ if app_view == "Session Manager":
         st.warning(
             "Questa operazione elimina definitivamente tutti i record con questo session_id dal bucket InfluxDB."
         )
-        if st.button("Elimina definitivamente", key=f"manager_delete_button_{managed_session_id}"):
+        if st.button(
+            "Elimina definitivamente",
+            key=f"manager_delete_button_{managed_session_id}",
+            type="primary",
+        ):
             if delete_confirmation.strip() != delete_phrase:
                 st.error("Conferma non valida. Copia la frase completa prima di procedere.")
             else:
@@ -514,15 +737,24 @@ if app_view == "Session Manager":
 
     st.stop()
 
-analysis_mode = st.radio(
-    "Modalità",
+render_section_title(
+    "Esplora le sessioni",
+    "Scegli una fermentazione oppure metti più prove sullo stesso asse temporale.",
+)
+analysis_mode = st.segmented_control(
+    "Modalità di analisi",
     ["Single Session", "Compare Sessions"],
-    horizontal=True,
+    default="Single Session",
+    format_func=lambda value: {
+        "Single Session": "Sessione singola",
+        "Compare Sessions": "Confronta sessioni",
+    }[value],
+    width="stretch",
 )
 
 if analysis_mode == "Single Session":
     session_id = st.selectbox(
-        "Sessione",
+        "Sessione da analizzare",
         sessions["session_id"].tolist(),
         format_func=lambda value: session_labels[value],
     )
@@ -532,40 +764,76 @@ else:
     for selected_session in sessions["session_id"].tolist():
         st.session_state.compare_offsets.setdefault(selected_session, 0.0)
     selected_session_ids = st.multiselect(
-        "Sessioni",
+        "Sessioni da confrontare",
         sessions["session_id"].tolist(),
         format_func=lambda value: session_labels[value],
+        placeholder="Seleziona almeno due sessioni",
     )
     if len(selected_session_ids) < 2:
         st.info("Seleziona almeno due sessioni per la modalità Compare Sessions.")
         st.stop()
 
-with st.expander("Parametri di elaborazione"):
-    col_a, col_b = st.columns(2)
-    smoothing_minutes = col_a.slider("Filtro mediana (min)", 1, 30, 5)
-    post_smoothing_minutes = col_b.slider(
-        "Smussatura finale media (min)", 0, 30, 3
+with st.expander("Regolazioni analisi", expanded=False):
+    st.caption(
+        "I valori predefiniti sono adatti alla maggior parte delle sessioni. "
+        "Modificali solo per correggere rumore, picchi o una baseline instabile."
+    )
+    smoothing_tab, baseline_tab, dynamics_tab = st.tabs(
+        ["Pulizia segnale", "Baseline", "Dinamica"]
     )
 
-    col_c, col_d = st.columns(2)
-    despike_window_minutes = col_c.slider("Finestra despike (min)", 0, 20, 3)
-    despike_sigma = col_d.slider("Soglia despike (sigma)", 0.0, 8.0, 3.5, 0.5)
+    with smoothing_tab:
+        col_a, col_b = st.columns(2)
+        smoothing_minutes = col_a.slider(
+            "Filtro mediano",
+            1,
+            30,
+            5,
+            help="Riduce il rumore preservando i cambi di tendenza.",
+        )
+        col_a.caption("minuti")
+        post_smoothing_minutes = col_b.slider(
+            "Smussatura finale",
+            0,
+            30,
+            3,
+            help="Rende più leggibile la curva elaborata.",
+        )
+        col_b.caption("minuti")
 
-    col_e, col_f = st.columns(2)
-    baseline_offset_minutes = col_e.slider(
-        "Ignora i primi minuti", 0, 180, 0, 5
-    )
-    baseline_minutes = col_f.slider("Durata baseline (min)", 1, 30, 5)
+        col_c, col_d = st.columns(2)
+        despike_window_minutes = col_c.slider(
+            "Finestra rimozione picchi", 0, 20, 3
+        )
+        col_c.caption("minuti · 0 per disattivare")
+        despike_sigma = col_d.slider(
+            "Sensibilità ai picchi", 0.0, 8.0, 3.5, 0.5
+        )
+        col_d.caption("sigma · 0 per disattivare")
 
-    col_g, col_h = st.columns(2)
-    rate_window_minutes = col_g.slider("Finestra velocità (min)", 5, 120, 30, 5)
-    acceleration_window_minutes = col_h.slider(
-        "Finestra accelerazione (min)", 10, 180, 60, 5
-    )
+    with baseline_tab:
+        col_e, col_f = st.columns(2)
+        baseline_offset_minutes = col_e.slider(
+            "Ignora l'avvio", 0, 180, 0, 5,
+            help="Utile se il campione non era stabile al momento dello START.",
+        )
+        col_e.caption("minuti iniziali")
+        baseline_minutes = col_f.slider("Finestra baseline", 1, 30, 5)
+        col_f.caption("minuti")
 
-    minimum_slope_points = st.slider(
-        "Punti minimi per regressione", 3, 15, 5
-    )
+    with dynamics_tab:
+        col_g, col_h = st.columns(2)
+        rate_window_minutes = col_g.slider(
+            "Finestra velocità", 5, 120, 30, 5
+        )
+        col_g.caption("minuti")
+        acceleration_window_minutes = col_h.slider(
+            "Finestra accelerazione", 10, 180, 60, 5
+        )
+        col_h.caption("minuti")
+        minimum_slope_points = st.slider(
+            "Campioni minimi per la stima", 3, 15, 5
+        )
 
 if analysis_mode == "Single Session":
     try:
@@ -601,10 +869,14 @@ if analysis_mode == "Single Session":
         )
         summary = summarize_session(analysis)
 
-        single_view = st.radio(
-            "Visualizzazione singola",
+        single_view = st.segmented_control(
+            "Vista grafico",
             ["Serie temporali", "Correlazione 2 variabili"],
-            horizontal=True,
+            default="Serie temporali",
+            format_func=lambda value: {
+                "Serie temporali": "Andamento nel tempo",
+                "Correlazione 2 variabili": "Correlazione",
+            }[value],
         )
         if single_view == "Correlazione 2 variabili":
             metric_options = get_compare_metric_options([analysis])
@@ -628,34 +900,7 @@ if analysis_mode == "Single Session":
                     ),
                     index=1 if len(metric_names) > 1 else 0,
                 )
-                if x_metric != y_metric:
-                    correlation_figure = go.Figure()
-                    x_values = analysis[x_metric]
-                    y_values = analysis[y_metric]
-                    valid = x_values.notna() & y_values.notna()
-                    correlation_figure.add_trace(
-                        go.Scatter(
-                            x=x_values[valid],
-                            y=y_values[valid],
-                            mode="lines+markers",
-                            name=session_id,
-                            hovertemplate=(
-                                f"{session_id}<br>{x_metric} = %{{x:.3f}}<br>{y_metric} = %{{y:.3f}}<extra></extra>"
-                            ),
-                        )
-                    )
-                    correlation_figure.update_layout(
-                        title="Correlazione tra due variabili",
-                        xaxis_title=next(
-                            label for name, label in metric_options if name == x_metric
-                        ),
-                        yaxis_title=next(
-                            label for name, label in metric_options if name == y_metric
-                        ),
-                        hovermode="closest",
-                    )
-                    st.plotly_chart(correlation_figure, width="stretch")
-                else:
+                if x_metric == y_metric:
                     st.info("Scegli due variabili distinte per il grafico di correlazione.")
     except Exception as error:
         st.error(f"Analisi della sessione non riuscita: {error}")
@@ -692,7 +937,10 @@ else:
             st.session_state.compare_offsets[session_name] = float(offset_hours_value)
             offset_hours[session_name] = float(offset_hours_value)
 
-    alignment_event = st.text_input("Alignment event", value="Reference event")
+    alignment_event = st.text_input(
+        "Etichetta dell'evento di allineamento",
+        value="Evento di riferimento",
+    )
 
     for session_name in selected_session_ids:
         try:
@@ -754,10 +1002,14 @@ else:
 
     metric_names = [name for name, _label in metric_options]
 
-    compare_view = st.radio(
-        "Visualizzazione",
+    compare_view = st.segmented_control(
+        "Vista grafico",
         ["Serie temporali", "Correlazione 2 variabili"],
-        horizontal=True,
+        default="Serie temporali",
+        format_func=lambda value: {
+            "Serie temporali": "Andamento nel tempo",
+            "Correlazione 2 variabili": "Correlazione",
+        }[value],
     )
 
     if compare_view == "Serie temporali":
@@ -834,7 +1086,10 @@ else:
             ),
             hovermode="closest",
         )
-        st.plotly_chart(compare_figure, width="stretch")
+        style_figure(compare_figure)
+        st.plotly_chart(
+            compare_figure, width="stretch", config={"displaylogo": False}
+        )
     else:
         metric_labels = {
             name: label for name, label in metric_options if name in compare_metrics
@@ -890,143 +1145,53 @@ else:
         compare_figure.update_layout(
             title="Confronto sessioni su tempo relativo",
             hovermode="x unified",
-            height=420 if len(compare_metrics) == 1 else 420,
         )
-        st.plotly_chart(compare_figure, width="stretch")
+        style_figure(compare_figure, height=460)
+        st.plotly_chart(
+            compare_figure, width="stretch", config={"displaylogo": False}
+        )
 
     with st.expander("Metadati sessioni", expanded=True):
         for session_name in selected_session_ids:
             metadata = compare_metadata.get(session_name, {})
-            st.markdown(f"**{session_name}**")
+            st.markdown(f"#### {session_name}")
             if not metadata:
                 st.caption("Nessun metadato disponibile per questa sessione.")
                 continue
-            metadata_rows = []
-            for key, label in (
-                ("_time", "Timestamp"),
-                ("session_id", "Session ID"),
-                ("device_id", "Device ID"),
-                ("schema", "Schema"),
-                ("type", "Tipo"),
-            ):
-                if key in metadata and metadata[key] is not None:
-                    metadata_rows.append((label, str(metadata[key])))
-            if metadata_rows:
-                st.dataframe(
-                    pd.DataFrame(metadata_rows, columns=["Campo", "Valore"]),
-                    width="stretch",
-                    hide_index=True,
-                )
-            recipe = metadata.get("recipe", {}) if isinstance(metadata, dict) else {}
-            recipe_sections = build_recipe_sections(recipe if isinstance(recipe, dict) else None)
-            if recipe_sections:
-                for section_title, section_rows in recipe_sections:
-                    st.caption(section_title)
-                    st.dataframe(
-                        pd.DataFrame(section_rows, columns=["Parametro", "Valore"]),
-                        width="stretch",
-                        hide_index=True,
-                    )
+            render_metadata(metadata)
     st.stop()
 
 if analysis_mode == "Single Session":
-    metric_row_one = st.columns(2)
-    metric_row_one[0].metric("Durata", fmt_number(summary.duration_hours, " h"))
-    metric_row_one[1].metric(
-        f"{summary.signal_label} iniziale",
-        fmt_number(summary.baseline_value, f" {summary.signal_unit}"),
+    render_section_title(
+        "Risultati",
+        f"Sintesi della sessione {session_id} con i parametri di analisi correnti.",
     )
-    metric_row_two = st.columns(2)
-    metric_row_two[0].metric(
+    metric_row_primary = st.columns(4)
+    metric_row_primary[0].metric("Durata", fmt_number(summary.duration_hours, " h"))
+    metric_row_primary[1].metric(
+        "Crescita attuale", fmt_number(summary.current_growth_pct, "%")
+    )
+    metric_row_primary[2].metric(
         f"{summary.signal_label} attuale",
         fmt_number(summary.current_value, f" {summary.signal_unit}"),
     )
-    metric_row_two[1].metric("Crescita", fmt_number(summary.current_growth_pct, "%"))
-    metric_row_ratio = st.columns(1)
-    metric_row_ratio[0].metric("Rapporto attuale/iniziale", fmt_number(summary.current_ratio_x, "x", 2))
-    metric_row_three = st.columns(2)
-    metric_row_three[0].metric(
-        "Velocità attuale", fmt_number(summary.current_growth_rate_pct_h, "%/h")
+    metric_row_primary[3].metric(
+        "Velocità attuale",
+        fmt_number(summary.current_growth_rate_pct_h, "%/h"),
     )
-    metric_row_three[1].metric(
+
+    metric_row_secondary = st.columns(3)
+    metric_row_secondary[0].metric(
         "Crescita massima", fmt_number(summary.maximum_growth_pct, "%")
     )
-    metric_row_four = st.columns(1)
-    metric_row_four[0].metric(
-        "Accelerazione attuale", fmt_number(summary.current_growth_accel_pct_h2, "%/h^2")
+    metric_row_secondary[1].metric(
+        "Rapporto attuale / iniziale",
+        fmt_number(summary.current_ratio_x, "×", 2),
     )
-
-    if session_metadata:
-        with st.expander("Metadati sessione", expanded=True):
-            metadata_rows = []
-            for key, label in (
-                ("_time", "Timestamp"),
-                ("session_id", "Session ID"),
-                ("device_id", "Device ID"),
-                ("schema", "Schema"),
-                ("type", "Tipo"),
-            ):
-                if key in session_metadata and session_metadata[key] is not None:
-                    metadata_rows.append((label, str(session_metadata[key])))
-            if metadata_rows:
-                st.markdown("#### Informazioni generali")
-                st.dataframe(
-                    pd.DataFrame(metadata_rows, columns=["Campo", "Valore"]),
-                    width="stretch",
-                    hide_index=True,
-                )
-
-            recipe = session_metadata.get("recipe", {}) if isinstance(session_metadata, dict) else {}
-            recipe_sections = build_recipe_sections(recipe if isinstance(recipe, dict) else None)
-
-            if recipe_sections:
-                st.markdown("### Ricetta letta dallo START")
-                tabs = st.tabs(["Generale", "Ingredienti", "Note"])
-
-                general_rows = []
-                ingredient_rows = []
-                note_rows = []
-                for section_title, section_rows in recipe_sections:
-                    if section_title == "Generale":
-                        general_rows.extend(section_rows)
-                    elif section_title in {"Farina", "Lievito", "Sale"}:
-                        ingredient_rows.extend(section_rows)
-                    else:
-                        note_rows.extend(section_rows)
-
-                with tabs[0]:
-                    if general_rows:
-                        st.dataframe(
-                            pd.DataFrame(general_rows, columns=["Parametro", "Valore"]),
-                            width="stretch",
-                            hide_index=True,
-                        )
-                    else:
-                        st.info("Nessun dato generale disponibile.")
-
-                with tabs[1]:
-                    if ingredient_rows:
-                        st.dataframe(
-                            pd.DataFrame(ingredient_rows, columns=["Parametro", "Valore"]),
-                            width="stretch",
-                            hide_index=True,
-                        )
-                    else:
-                        st.info("Nessun ingrediente disponibile.")
-
-                with tabs[2]:
-                    if note_rows:
-                        st.dataframe(
-                            pd.DataFrame(note_rows, columns=["Parametro", "Valore"]),
-                            width="stretch",
-                            hide_index=True,
-                        )
-                    else:
-                        st.info("Nessuna nota disponibile.")
-            else:
-                st.info(
-                    "Ho trovato metadati di sessione ma non ancora un blocco ricetta completo."
-                )
+    metric_row_secondary[2].metric(
+        "Accelerazione",
+        fmt_number(summary.current_growth_accel_pct_h2, "%/h²"),
+    )
 
     if summary.signal_field == "dough_height_mm":
         st.warning(
@@ -1085,7 +1250,7 @@ if analysis_mode == "Single Session":
     volume_figure.update_layout(
         title=f"{summary.signal_label} e crescita", hovermode="x unified"
     )
-    st.plotly_chart(volume_figure, width="stretch")
+    style_figure(volume_figure)
 
     temperature_figure = make_subplots(specs=[[{"secondary_y": True}]])
     if "temperature_dough_c" in analysis:
@@ -1133,7 +1298,65 @@ if analysis_mode == "Single Session":
     temperature_figure.update_layout(
         title="Temperatura e velocità di crescita", hovermode="x unified"
     )
-    st.plotly_chart(temperature_figure, width="stretch")
+    style_figure(temperature_figure)
 
-    with st.expander("Dati elaborati"):
+    chart_tab, dynamics_tab, details_tab, data_tab = st.tabs(
+        ["Andamento", "Temperatura e dinamica", "Ricetta e dettagli", "Dati"]
+    )
+    with chart_tab:
+        if single_view == "Serie temporali":
+            st.plotly_chart(volume_figure, width="stretch", config={"displaylogo": False})
+        elif "metric_options" in locals() and x_metric != y_metric:
+            correlation_figure = go.Figure()
+            x_values = analysis[x_metric]
+            y_values = analysis[y_metric]
+            valid = x_values.notna() & y_values.notna()
+            correlation_figure.add_trace(
+                go.Scatter(
+                    x=x_values[valid],
+                    y=y_values[valid],
+                    mode="lines+markers",
+                    name=session_id,
+                    line={"color": "#247a52", "width": 2},
+                    marker={"size": 5, "color": "#d28a26"},
+                    hovertemplate=(
+                        f"{session_id}<br>{x_metric} = %{{x:.3f}}"
+                        f"<br>{y_metric} = %{{y:.3f}}<extra></extra>"
+                    ),
+                )
+            )
+            correlation_figure.update_layout(
+                title="Correlazione tra due variabili",
+                xaxis_title=next(
+                    label for name, label in metric_options if name == x_metric
+                ),
+                yaxis_title=next(
+                    label for name, label in metric_options if name == y_metric
+                ),
+                hovermode="closest",
+            )
+            style_figure(correlation_figure)
+            st.plotly_chart(
+                correlation_figure,
+                width="stretch",
+                config={"displaylogo": False},
+            )
+        else:
+            st.info("Scegli due variabili diverse per visualizzare la correlazione.")
+
+    with dynamics_tab:
+        st.plotly_chart(
+            temperature_figure,
+            width="stretch",
+            config={"displaylogo": False},
+        )
+
+    with details_tab:
+        if session_metadata:
+            render_metadata(session_metadata)
+        else:
+            st.info("Nessun metadato disponibile per questa sessione.")
+
+    with data_tab:
+        st.caption("Dati elaborati con i parametri attualmente selezionati.")
         st.dataframe(analysis.reset_index(), width="stretch", hide_index=True)
