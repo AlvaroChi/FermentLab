@@ -116,6 +116,10 @@ void InfluxUploader::begin(PersistentQueue& queue) {
   retryDelayMs_ = Config::INFLUX_RETRY_INITIAL_MS;
 }
 
+void InfluxUploader::forceNextAttempt() {
+  nextAttemptMs_ = 0;
+}
+
 InfluxUploadEvent InfluxUploader::tick() {
   if (queue_ == nullptr) {
     return InfluxUploadEvent::None;

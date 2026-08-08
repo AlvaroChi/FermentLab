@@ -180,6 +180,12 @@ bool panicSessionFileSkipReported = false;
 bool panicMeasurementSkipReported = false;
 bool sessionFileEnabled = true;
 uint32_t nextSessionFlushMs = 0;
+bool sessionResumeAvailable = false;
+char pendingResumeId[64] = {};
+char pendingResumeDate[9] = {};
+char pendingResumeTime[7] = {};
+uint32_t pendingResumeSequence = 0;
+uint32_t pendingResumeInterval = 0;
 RTC_DATA_ATTR uint32_t crashBreadcrumb = 0;
 RTC_DATA_ATTR uint32_t lastPanicBreadcrumb = 0;
 uint32_t bootCrashBreadcrumb = 0;
@@ -1150,6 +1156,29 @@ void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
   (void)isoTimestamp;
 }
 
+void saveSessionState() {
+  if (!storageReady || !sessionActive) return;
+  File f = LittleFS.open(Config::SESSION_RESUME_FILE, FILE_WRITE);
+  if (!f) { emitEvent("error", "SESSION_STATE_SAVE_FAILED"); return; }
+  f.print(F("{\"session_id\":\""));
+  f.print(sessionId);
+  f.print(F("\",\"start_date\":\""));
+  f.print(sessionStartDate);
+  f.print(F("\",\"start_time\":\""));
+  f.print(sessionStartTime);
+  f.print(F("\",\"sequence\":"));
+  f.print(sequenceNumber);
+  f.print(F(",\"interval_s\":"));
+  f.print(sessionReadingIntervalSeconds);
+  f.println(F("}"));
+  f.close();
+}
+
+void clearSessionState() {
+  sessionResumeAvailable = false;
+  if (storageReady) LittleFS.remove(Config::SESSION_RESUME_FILE);
+}
+
 void emitMeasurement() {
   setCrashBreadcrumb(BREADCRUMB_MEASURE_BEGIN);
   const DoughReading dough = currentDoughReading();
@@ -1275,6 +1304,9 @@ void emitMeasurement() {
     emitEvent("error", "TELEMETRY_QUEUE_WRITE_FAILED");
   }
   lastMeasurementTimestamp = time(nullptr);
+  if (sequenceNumber % Config::SESSION_STATE_SAVE_INTERVAL == 0) {
+    saveSessionState();
+  }
   setCrashBreadcrumb(BREADCRUMB_MEASURE_DONE);
 }
 
@@ -1302,6 +1334,87 @@ void dumpSavedFile(const char* path, const char* filename) {
   Serial.print(F("\",\"filename\":\""));
   Serial.print(filename);
   Serial.println(F("\"}"));
+}
+
+void loadSessionStateIfAvailable() {
+  sessionResumeAvailable = false;
+  if (!storageReady || panicSafeMode) return;
+  if (!LittleFS.exists(Config::SESSION_RESUME_FILE)) return;
+  File f = LittleFS.open(Config::SESSION_RESUME_FILE, FILE_READ);
+  if (!f) return;
+  String content;
+  content.reserve(200);
+  while (f.available()) content += static_cast<char>(f.read());
+  f.close();
+
+  auto extractStr = [&](const char* key, char* buf, size_t bufSize) -> bool {
+    String search = String('"') + key + "\":\"";
+    int start = content.indexOf(search);
+    if (start < 0) return false;
+    start += search.length();
+    int end = content.indexOf('"', start);
+    if (end < 0) return false;
+    content.substring(start, end).toCharArray(buf, bufSize);
+    return true;
+  };
+  auto extractUint = [&](const char* key, uint32_t& out) -> bool {
+    String search = String('"') + key + "\":";
+    int pos = content.indexOf(search);
+    if (pos < 0) return false;
+    out = static_cast<uint32_t>(content.substring(pos + search.length()).toInt());
+    return true;
+  };
+
+  if (!extractStr("session_id", pendingResumeId, sizeof(pendingResumeId)) ||
+      !extractStr("start_date", pendingResumeDate, sizeof(pendingResumeDate)) ||
+      !extractStr("start_time", pendingResumeTime, sizeof(pendingResumeTime))) {
+    emitEvent("warning", "SESSION_RESUME_STATE_CORRUPT");
+    LittleFS.remove(Config::SESSION_RESUME_FILE);
+    return;
+  }
+  pendingResumeSequence = 0;
+  pendingResumeInterval = Config::DEFAULT_READING_INTERVAL_S;
+  extractUint("sequence", pendingResumeSequence);
+  extractUint("interval_s", pendingResumeInterval);
+  sessionResumeAvailable = true;
+  emitEvent("status", "SESSION_RESUME_AVAILABLE");
+}
+
+void resumeSession() {
+  if (!sessionResumeAvailable || sessionActive) return;
+  if (!storageReady || !distanceSensorReady || !ambientSensorReady) return;
+  if (time(nullptr) < Config::MIN_VALID_EPOCH) return;
+
+  strlcpy(sessionId, pendingResumeId, sizeof(sessionId));
+  strlcpy(sessionStartDate, pendingResumeDate, sizeof(sessionStartDate));
+  strlcpy(sessionStartTime, pendingResumeTime, sizeof(sessionStartTime));
+  sequenceNumber = pendingResumeSequence;
+  sessionReadingIntervalSeconds = pendingResumeInterval;
+  sessionResumeAvailable = false;
+  sessionFileEnabled = false;
+  activeFilePath[0] = '\0';
+  baselineAvailable = false;
+  baselineDistanceMm = NAN;
+  nextSessionFlushMs = millis() + 5000UL;
+  sessionStartMs = millis();
+  sessionActive = true;
+  setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
+
+  const time_t now = time(nullptr);
+  char isoNow[40] = {};
+  formatLocalTime(now, isoNow, sizeof(isoNow));
+  Serial.print(F("{\"schema\":\"fermentlab.event.v1\",\"type\":\"session_resumed\",\"device_id\":\""));
+  Serial.print(deviceId);
+  Serial.print(F("\",\"session_id\":\""));
+  Serial.print(sessionId);
+  Serial.print(F("\",\"timestamp\":\""));
+  Serial.print(isoNow);
+  Serial.print(F("\",\"sequence_from\":"));
+  Serial.print(sequenceNumber);
+  Serial.println(F("}"));
+
+  lastReadingMs = millis();
+  emitEvent("status", "SESSION_RESUMED");
 }
 
 void startSession() {
@@ -1384,6 +1497,7 @@ void startSession() {
   sessionActive = true;
   setCrashBreadcrumb(BREADCRUMB_START_ACTIVE);
   emitSessionStart(startTimestamp, isoTimestamp);
+  saveSessionState();
   // Start with a clean interval window. Triggering a measurement immediately
   // after START was causing a panic on some boards during filesystem writes.
   lastReadingMs = millis();
@@ -1403,6 +1517,7 @@ void stopSession() {
   }
 
   sessionActive = false;
+  clearSessionState();
   char filename[128] = {};
   char finalPath[132] = {};
   snprintf(filename, sizeof(filename), "%s_%s_%s_%s.jsonl",
@@ -1781,6 +1896,85 @@ String toggleSessionFromWeb() {
   return F("{\"ok\":true,\"queued\":true}");
 }
 
+String forceInfluxFlushFromWeb() {
+  if (!telemetryQueueReady) {
+    return F("{\"ok\":false,\"message\":\"Coda persistente non pronta.\"}");
+  }
+  influxUploader.forceNextAttempt();
+  String json = F("{\"ok\":true,\"message\":\"Upload forzato. La coda verrà processata appena possibile.\",\"queue_records\":");
+  json += String(telemetryQueue.pendingRecords());
+  json += F("}");
+  return json;
+}
+
+String dumpInfluxQueueFromWeb() {
+  if (!telemetryQueueReady) {
+    return F("{\"ok\":false,\"message\":\"Coda persistente non pronta.\"}");
+  }
+
+  String json = F("{\"ok\":true,\"message\":\"Dati in coda recuperabili.\",\"segments\":[");
+  bool first = true;
+
+  File directory = LittleFS.open(Config::TELEMETRY_QUEUE_DIRECTORY);
+  if (!directory || !directory.isDirectory()) {
+    return F("{\"ok\":false,\"message\":\"Impossibile aprire la directory della coda.\"}");
+  }
+
+  for (File entry = directory.openNextFile(); entry;
+       entry = directory.openNextFile()) {
+    if (entry.isDirectory()) {
+      entry.close();
+      continue;
+    }
+    const String entryName = entry.name();
+    if (!entryName.startsWith("queue-") || !entryName.endsWith(".lp")) {
+      entry.close();
+      continue;
+    }
+
+    const String path = String(Config::TELEMETRY_QUEUE_DIRECTORY) + "/" + entryName;
+    File segment = LittleFS.open(path.c_str(), FILE_READ);
+    if (!segment) {
+      entry.close();
+      continue;
+    }
+
+    String content;
+    while (segment.available()) {
+      content += static_cast<char>(segment.read());
+    }
+    segment.close();
+    entry.close();
+    content.trim();
+    if (content.length() == 0) {
+      continue;
+    }
+
+    if (!first) {
+      json += ',';
+    }
+    first = false;
+
+    json += F("{\"path\":\"");
+    json += path;
+    json += F("\",\"content\":\"");
+    for (size_t index = 0; index < content.length(); ++index) {
+      const char c = content[index];
+      if (c == '"' || c == '\\') {
+        json += '\\';
+      }
+      json += c;
+    }
+    json += F("\"}");
+  }
+  directory.close();
+
+  json += F("],\"records\":");
+  json += String(telemetryQueue.pendingRecords());
+  json += F("}");
+  return json;
+}
+
 String configurationLockedJson() {
   return F("{\"ok\":false,\"message\":\"Configurazione bloccata durante una sessione attiva.\"}");
 }
@@ -1844,6 +2038,7 @@ void setup() {
     emitEvent(telemetryQueueReady ? "status" : "error",
               telemetryQueueReady ? "TELEMETRY_QUEUE_READY"
                                   : "TELEMETRY_QUEUE_FAILED");
+    loadSessionStateIfAvailable();
   }
   setenv("TZ", Config::TIMEZONE, 1);
   tzset();
@@ -1860,7 +2055,8 @@ void setup() {
   doughSensorReady = initializeDoughSensor();
   lastSensorRetryMs = millis();
 
-  webInterface.configure(webStatusJson, webTestJson, toggleSessionFromWeb);
+  webInterface.configure(webStatusJson, webTestJson, toggleSessionFromWeb,
+                         forceInfluxFlushFromWeb, dumpInfluxQueueFromWeb);
   webInterface.configureRecipes(
       []() { return sessionConfigStore.floursJson(); }, saveFloursFromWeb,
       []() { return sessionConfigStore.presetsJson(); }, savePresetsFromWeb,
@@ -1891,6 +2087,12 @@ void loop() {
   if (webToggleRequested && millis() - webToggleRequestedAtMs >= 120UL) {
     webToggleRequested = false;
     toggleSession();
+  }
+
+  if (!sessionActive && sessionResumeAvailable &&
+      time(nullptr) >= Config::MIN_VALID_EPOCH &&
+      distanceSensorReady && ambientSensorReady) {
+    resumeSession();
   }
 
   if (sessionActive &&

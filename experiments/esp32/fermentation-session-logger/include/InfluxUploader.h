@@ -15,6 +15,7 @@ class InfluxUploader {
  public:
   void begin(PersistentQueue& queue);
   InfluxUploadEvent tick();
+  void forceNextAttempt();
   int lastHttpCode() const { return lastHttpCode_; }
   size_t lastUploadedBytes() const { return lastUploadedBytes_; }
 

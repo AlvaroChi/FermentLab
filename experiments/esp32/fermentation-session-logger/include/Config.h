@@ -129,6 +129,8 @@ constexpr time_t MIN_VALID_EPOCH = 1704067200;  // 2024-01-01 UTC
 // HTTP response. Small segments bound RAM use and limit retransmission after
 // a reset. Presence in this directory is the record's "not sent" state.
 constexpr char TELEMETRY_QUEUE_DIRECTORY[] = "/influx-queue";
+constexpr char SESSION_RESUME_FILE[] = "/session-resume.json";
+constexpr uint32_t SESSION_STATE_SAVE_INTERVAL = 10;
 constexpr size_t TELEMETRY_SEGMENT_MAX_BYTES = 12 * 1024;
 constexpr uint32_t INFLUX_HTTP_TIMEOUT_MS = 1200;
 constexpr uint32_t INFLUX_RETRY_INITIAL_MS = 5000;

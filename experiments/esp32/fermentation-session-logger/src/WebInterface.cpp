@@ -1,6 +1,7 @@
 #include "WebInterface.h"
 
 #include <ESPmDNS.h>
+#include <LittleFS.h>
 
 #include <utility>
 
@@ -48,7 +49,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       </div>
       <div>
         <div id="time" class="muted"></div>
-        <div class="actions"><button id="testButton" class="test">Test lettura</button><button id="toggleButton" class="toggle">START</button><a class="config-link" href="/config">Configura prossimo impasto, farine e preset →</a></div>
+        <div class="actions"><button id="testButton" class="test">Test lettura</button><button id="flushButton" class="test">Invia coda ora</button><button id="toggleButton" class="toggle">START</button><a class="config-link" href="/config">Configura prossimo impasto, farine e preset →</a></div>
       </div>
     </div>
     <div id="notice" class="notice"></div>
@@ -85,6 +86,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
   function renderTest(t){$('testTime').textContent=t.timestamp||'Timestamp non disponibile';$('doughTemperature').textContent=value(t.dough_temperature_c,'°C');$('doughStatus').textContent=t.dough_status;$('temperature').textContent=value(t.ambient_temperature_c,'°C');$('humidity').textContent=value(t.humidity_pct,'%');const height=value(t.dough_height_mm,'mm',2),raw=t.distance_raw_median_mm==null?'raw —':'raw '+t.distance_raw_median_mm+' mm';$('distance').textContent=height+' ('+raw+')';$('distanceStatus').textContent=t.distance_status}
   async function refresh(){if(actionInProgress){setTimeout(refresh,2500);return}try{renderStatus(await api('/api/status',{timeoutMs:3000}));refreshFailures=0}catch(e){refreshFailures++;if(refreshFailures>=2){$('connection').textContent='Offline';$('connection').className='badge';$('notice').textContent='ESP32 non raggiungibile: '+e.message}}setTimeout(refresh,2500)}
   $('testButton').addEventListener('click',async()=>{const b=$('testButton');b.disabled=true;$('notice').textContent='Acquisizione in corso...';try{renderTest(await api('/api/test',{method:'POST'}));$('notice').textContent='Campione acquisito senza salvataggio.'}catch(e){$('notice').textContent='Test fallito: '+e.message}finally{b.disabled=false}});
+  $('flushButton').addEventListener('click',async()=>{const b=$('flushButton');b.disabled=true;$('notice').textContent='Invio della coda in corso...';try{const reply=await api('/api/influx/flush',{method:'POST',timeoutMs:8000});$('notice').textContent=reply.message||'Coda processata.'}catch(e){$('notice').textContent='Invio forzato fallito: '+e.message}finally{b.disabled=false}});
   $('toggleButton').addEventListener('click',async()=>{const b=$('toggleButton'),before=state&&state.session_active;if(before){const name=state.draft_name||'Impasto senza nome',id=state.session_id||'ID non disponibile';if(!confirm('Questo terminera la sessione "'+name+'".\n\nID: '+id+'\n\nI dati saranno salvati e la sessione non potra essere ripresa. Confermi lo STOP?')){$('notice').textContent='STOP annullato: la sessione continua.';return}}actionInProgress=true;b.disabled=true;$('notice').textContent='Operazione in corso...';try{const toggleReply=await api('/api/session/toggle',{method:'POST',timeoutMs:12000});if(toggleReply&&toggleReply.queued){$('notice').textContent=toggleReply.session_active?'START inviato. Attendi l’aggiornamento dello stato.':'STOP inviato. Attendi l’aggiornamento dello stato.'}let next=null;for(let attempt=0;attempt<12;attempt++){await wait(750);try{next=await api('/api/status',{timeoutMs:3000})}catch(_){continue}if(next.session_active!==(before===true)||attempt===11)break}if(next){renderStatus(next);if(next.session_active===before){$('notice').textContent=next.start_blocker?('START bloccato: '+next.start_blocker):'Richiesta ricevuta ma stato invariato. Riprova tra qualche secondo.'}else{$('notice').textContent=next.session_active?'Sessione avviata.':'Sessione terminata e salvata.'}}else if(toggleReply&&typeof toggleReply.session_active==='boolean'){$('notice').textContent=toggleReply.session_active?'Comando START inviato.':'Comando STOP inviato.'}else{$('notice').textContent='Comando inviato. Lo stato potrebbe aggiornarsi tra qualche secondo.'}}catch(e){$('notice').textContent='Comando fallito: '+e.message}finally{actionInProgress=false;b.disabled=false}});
   refresh();
 </script>
@@ -315,10 +317,14 @@ WebInterface::WebInterface() : server_(Config::WEB_SERVER_PORT) {}
 
 void WebInterface::configure(JsonHandler statusHandler,
                              JsonHandler testHandler,
-                             JsonHandler toggleHandler) {
+                             JsonHandler toggleHandler,
+                             JsonHandler forceUploadHandler,
+                             JsonHandler dumpQueueHandler) {
   statusHandler_ = std::move(statusHandler);
   testHandler_ = std::move(testHandler);
   toggleHandler_ = std::move(toggleHandler);
+  forceUploadHandler_ = std::move(forceUploadHandler);
+  dumpQueueHandler_ = std::move(dumpQueueHandler);
 }
 
 void WebInterface::configureRecipes(JsonHandler floursHandler,
@@ -412,6 +418,10 @@ void WebInterface::configureRoutes() {
              [this]() { sendJson(statusHandler_); });
   server_.on("/api/test", HTTP_POST,
              [this]() { sendJson(testHandler_); });
+  server_.on("/api/influx/flush", HTTP_POST,
+             [this]() { sendJson(forceUploadHandler_); });
+  server_.on("/api/influx/queue", HTTP_GET,
+             [this]() { sendJson(dumpQueueHandler_); });
   server_.on("/api/session/toggle", HTTP_POST,
              [this]() { sendJson(toggleHandler_); });
   server_.on("/api/config/flours", HTTP_GET,
@@ -438,6 +448,73 @@ void WebInterface::configureRoutes() {
   });
   server_.on("/api/config/import", HTTP_POST,
              [this]() { sendJsonBody(importHandler_); });
+  server_.on("/api/session/files", HTTP_GET, [this]() {
+    server_.sendHeader("Cache-Control", "no-store");
+    String json = F("{\"ok\":true,\"files\":[");
+    bool first = true;
+
+    File root = LittleFS.open("/");
+    if (!root || !root.isDirectory()) {
+      server_.send(503, "application/json", "{\"ok\":false,\"message\":\"Filesystem non disponibile.\"}");
+      return;
+    }
+
+    for (File entry = root.openNextFile(); entry;
+         entry = root.openNextFile()) {
+      if (entry.isDirectory()) {
+        entry.close();
+        continue;
+      }
+      const String name = entry.name();
+      if (!name.endsWith(".jsonl")) {
+        entry.close();
+        continue;
+      }
+
+      if (!first) {
+        json += ',';
+      }
+      first = false;
+
+      json += F("{\"name\":\"");
+      json += name;
+      json += F("\",\"size\":");
+      json += String(entry.size());
+      json += F(",\"url\":\"/files/");
+      json += name;
+      json += F("\"}");
+      entry.close();
+    }
+    root.close();
+
+    json += F("],\"total_files\":");
+    json += String(first ? 0 : 1);
+    json += F("}");
+    server_.send(200, "application/json", json);
+  });
+  server_.on("/api/session/file", HTTP_GET, [this]() {
+    const String name = server_.arg("name");
+    if (name.isEmpty()) {
+      server_.send(400, "application/json", "{\"ok\":false,\"message\":\"Parametro name mancante.\"}");
+      return;
+    }
+    if (!name.endsWith(".jsonl") || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+      server_.send(403, "application/json", "{\"ok\":false,\"message\":\"Solo file .jsonl senza sottocartelle.\"}");
+      return;
+    }
+
+    const String path = "/" + name;
+    File f = LittleFS.open(path.c_str(), FILE_READ);
+    if (!f) {
+      server_.send(404, "application/json", "{\"ok\":false,\"message\":\"File non trovato.\"}");
+      return;
+    }
+
+    server_.sendHeader("Cache-Control", "no-store");
+    server_.sendHeader("Content-Disposition", "attachment; filename=" + name);
+    server_.streamFile(f, "application/jsonl");
+    f.close();
+  });
   server_.onNotFound([this]() {
     server_.send(404, "application/json", "{\"error\":\"not_found\"}");
   });

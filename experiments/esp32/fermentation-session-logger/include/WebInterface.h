@@ -19,7 +19,8 @@ class WebInterface {
 
   WebInterface();
   void configure(JsonHandler statusHandler, JsonHandler testHandler,
-                 JsonHandler toggleHandler);
+                 JsonHandler toggleHandler, JsonHandler forceUploadHandler,
+                 JsonHandler dumpQueueHandler);
   void configureRecipes(JsonHandler floursHandler,
                         JsonBodyHandler saveFloursHandler,
                         JsonHandler presetsHandler,
@@ -43,6 +44,8 @@ class WebInterface {
   JsonHandler statusHandler_;
   JsonHandler testHandler_;
   JsonHandler toggleHandler_;
+  JsonHandler forceUploadHandler_;
+  JsonHandler dumpQueueHandler_;
   JsonHandler floursHandler_;
   JsonBodyHandler saveFloursHandler_;
   JsonHandler presetsHandler_;
