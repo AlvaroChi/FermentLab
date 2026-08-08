@@ -1150,10 +1150,7 @@ void emitSessionStartToInflux(time_t timestamp, const char* isoTimestamp) {
 
 void emitSessionStart(time_t timestamp, const char* isoTimestamp) {
   writeSessionStart(Serial, timestamp, isoTimestamp);
-  // Keep START metadata out of filesystem-backed writes. The session_start
-  // queue write can trigger immediate resets on some boards right after START.
-  (void)timestamp;
-  (void)isoTimestamp;
+  emitSessionStartToInflux(timestamp, isoTimestamp);
 }
 
 void saveSessionState() {

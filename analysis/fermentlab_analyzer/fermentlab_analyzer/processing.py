@@ -104,6 +104,45 @@ def build_recipe_summary(recipe: dict[str, object] | None) -> list[tuple[str, st
         return []
 
     rows: list[tuple[str, str]] = []
+    sections = build_recipe_sections(recipe)
+    for _, section_rows in sections:
+        rows.extend(section_rows)
+    return rows
+
+
+def build_recipe_sections(recipe: dict[str, object] | None) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Return recipe metadata grouped by section for richer Streamlit rendering."""
+
+    if not isinstance(recipe, dict) or not recipe:
+        return []
+
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+
+    def add_section(title: str, rows: list[tuple[str, str]]) -> None:
+        if rows:
+            sections.append((title, rows))
+
+    def add_row(rows: list[tuple[str, str]], key: str, label: str, value: object) -> None:
+        if value is None:
+            return
+        if isinstance(value, bool):
+            text = "Sì" if value else "No"
+        elif isinstance(value, (int, float)) and math.isfinite(float(value)):
+            if key in {"total_flour_g", "initial_dough_mass_g", "quantity_g", "salt_quantity_g", "yeast_quantity_g"}:
+                text = f"{float(value):.0f} g"
+            elif key in {"hydration_pct", "salt_pct", "yeast_pct"}:
+                text = f"{float(value):.1f}%"
+            elif key == "autolyse_min":
+                text = f"{float(value):.0f} min"
+            elif key == "flour_count":
+                text = f"{int(float(value))}"
+            else:
+                text = f"{float(value):.2f}"
+        else:
+            text = str(value)
+        rows.append((label, text))
+
+    general_rows: list[tuple[str, str]] = []
     for key, label in (
         ("name", "Nome ricetta"),
         ("preset_id", "Preset"),
@@ -119,28 +158,41 @@ def build_recipe_summary(recipe: dict[str, object] | None) -> list[tuple[str, st
         ("flour_count", "Numero farine"),
         ("flours_summary", "Mix farine"),
     ):
-        if key not in recipe:
-            continue
-        value = recipe[key]
-        if value is None:
-            continue
-        if isinstance(value, bool):
-            text = "Sì" if value else "No"
-        elif isinstance(value, (int, float)) and math.isfinite(float(value)):
-            if key in {"total_flour_g", "initial_dough_mass_g"}:
-                text = f"{float(value):.0f} g"
-            elif key in {"hydration_pct", "salt_pct", "yeast_pct"}:
-                text = f"{float(value):.1f}%"
-            elif key == "autolyse_min":
-                text = f"{float(value):.0f} min"
-            elif key == "flour_count":
-                text = f"{int(float(value))}"
-            else:
-                text = f"{float(value):.2f}"
-        else:
-            text = str(value)
-        rows.append((label, text))
-    return rows
+        if key in recipe:
+            add_row(general_rows, key, label, recipe[key])
+
+    add_section("Generale", general_rows)
+
+    ingredients = recipe.get("ingredients")
+    if isinstance(ingredients, dict):
+        flour = ingredients.get("flour")
+        if isinstance(flour, dict):
+            flour_rows: list[tuple[str, str]] = []
+            flour_type = flour.get("type") or flour.get("name") or flour.get("flour_type")
+            if flour_type is not None:
+                add_row(flour_rows, "flour_type", "Tipo farina", flour_type)
+            flour_qty = flour.get("quantity_g") or flour.get("grams")
+            if flour_qty is not None:
+                add_row(flour_rows, "flour_quantity_g", "Quantità farina", flour_qty)
+            add_section("Farina", flour_rows)
+
+        yeast = ingredients.get("yeast")
+        if isinstance(yeast, dict):
+            yeast_rows: list[tuple[str, str]] = []
+            yeast_qty = yeast.get("quantity_g") or yeast.get("grams")
+            if yeast_qty is not None:
+                add_row(yeast_rows, "yeast_quantity_g", "Quantità lievito", yeast_qty)
+            add_section("Lievito", yeast_rows)
+
+        salt = ingredients.get("salt")
+        if isinstance(salt, dict):
+            salt_rows: list[tuple[str, str]] = []
+            salt_qty = salt.get("quantity_g") or salt.get("grams")
+            if salt_qty is not None:
+                add_row(salt_rows, "salt_quantity_g", "Quantità sale", salt_qty)
+            add_section("Sale", salt_rows)
+
+    return sections
 
 
 def analyze_session(

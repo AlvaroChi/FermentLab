@@ -14,6 +14,7 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 from fermentlab_analyzer.processing import (
     add_relative_time,
     analyze_session,
+    build_recipe_sections,
     build_recipe_summary,
     summarize_session,
 )
@@ -167,6 +168,45 @@ class ProcessingTests(unittest.TestCase):
         self.assertIn(("Idratazione", "72.5%"), rows)
         self.assertIn(("Autolisi (min)", "20 min"), rows)
         self.assertIn(("Numero farine", "2"), rows)
+
+    def test_build_recipe_summary_finds_nested_ingredient_fields(self) -> None:
+        recipe = {
+            "name": "Pizza dough",
+            "ingredients": {
+                "flour": {"type": "00", "quantity_g": 500},
+                "yeast": {"quantity_g": 2},
+                "salt": {"quantity_g": 10},
+            },
+            "hydration_pct": 68.0,
+        }
+
+        rows = build_recipe_summary(recipe)
+
+        self.assertIn(("Tipo farina", "00"), rows)
+        self.assertIn(("Quantità lievito", "2 g"), rows)
+        self.assertIn(("Quantità sale", "10 g"), rows)
+
+    def test_build_recipe_sections_groups_fields_by_ingredient(self) -> None:
+        recipe = {
+            "name": "Pizza dough",
+            "ingredients": {
+                "flour": {"type": "00", "quantity_g": 500},
+                "yeast": {"quantity_g": 2},
+                "salt": {"quantity_g": 10},
+            },
+            "hydration_pct": 68.0,
+        }
+
+        sections = build_recipe_sections(recipe)
+
+        self.assertEqual(sections[0][0], "Generale")
+        self.assertIn(("Nome ricetta", "Pizza dough"), sections[0][1])
+        self.assertEqual(sections[1][0], "Farina")
+        self.assertIn(("Tipo farina", "00"), sections[1][1])
+        self.assertEqual(sections[2][0], "Lievito")
+        self.assertIn(("Quantità lievito", "2 g"), sections[2][1])
+        self.assertEqual(sections[3][0], "Sale")
+        self.assertIn(("Quantità sale", "10 g"), sections[3][1])
 
 
 if __name__ == "__main__":
