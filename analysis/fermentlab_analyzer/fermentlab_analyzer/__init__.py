@@ -6,6 +6,7 @@ from .processing import (
     AnalysisSummary,
     add_relative_time,
     analyze_session,
+    build_recipe_sections,
     build_recipe_summary,
     summarize_session,
 )

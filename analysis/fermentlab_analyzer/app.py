@@ -14,6 +14,7 @@ from fermentlab_analyzer import (
     InfluxSettings,
     add_relative_time,
     analyze_session,
+    build_recipe_sections,
     build_recipe_summary,
     summarize_session,
 )
@@ -63,10 +64,158 @@ def load_session_metadata(
     return InfluxRepository(settings).load_session_metadata(session_id, lookback_days)
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def load_session_admin_info(
+    url: str,
+    org: str,
+    bucket: str,
+    token: str,
+    measurement: str,
+    session_id: str,
+    lookback_days: int,
+) -> dict[str, object]:
+    settings = InfluxSettings(url, org, bucket, token, measurement)
+    return InfluxRepository(settings).load_session_admin_info(session_id, lookback_days)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def preview_session_merge(
+    url: str,
+    org: str,
+    bucket: str,
+    token: str,
+    measurement: str,
+    source_session_id: str,
+    target_session_id: str,
+    lookback_days: int,
+) -> dict[str, object]:
+    settings = InfluxSettings(url, org, bucket, token, measurement)
+    return InfluxRepository(settings).preview_merge_sessions(
+        source_session_id,
+        target_session_id,
+        lookback_days,
+    )
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_management_catalog(
+    url: str,
+    org: str,
+    bucket: str,
+    token: str,
+    measurement: str,
+    lookback_days: int,
+    session_ids: tuple[str, ...],
+) -> pd.DataFrame:
+    settings = InfluxSettings(url, org, bucket, token, measurement)
+    repository = InfluxRepository(settings)
+    rows: list[dict[str, object]] = []
+    for session_id in session_ids:
+        try:
+            info = repository.load_session_admin_info(session_id, lookback_days)
+        except Exception as error:
+            info = {
+                "session_id": session_id,
+                "kind": "error",
+                "is_test": False,
+                "is_failed": False,
+                "is_suspicious": True,
+                "reasons": [str(error)],
+            }
+        rows.append(
+            {
+                "session_id": session_id,
+                "first_seen": info.get("first_seen"),
+                "last_seen": info.get("last_seen"),
+                "duration_hours": float(info.get("duration_hours") or 0.0),
+                "record_count": int(info.get("record_count") or 0),
+                "sample_count": int(info.get("sample_count") or 0),
+                "kind": str(info.get("kind") or "normal"),
+                "is_test": bool(info.get("is_test")),
+                "is_failed": bool(info.get("is_failed")),
+                "is_suspicious": bool(info.get("is_suspicious")),
+                "reasons": ", ".join(str(reason) for reason in info.get("reasons", [])),
+            }
+        )
+
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+    if "last_seen" in frame:
+        frame["last_seen"] = pd.to_datetime(frame["last_seen"], utc=True, errors="coerce")
+    if "first_seen" in frame:
+        frame["first_seen"] = pd.to_datetime(frame["first_seen"], utc=True, errors="coerce")
+    return frame.sort_values("last_seen", ascending=False, na_position="last")
+
+
+def delete_session_from_influx(
+    url: str,
+    org: str,
+    bucket: str,
+    token: str,
+    measurement: str,
+    session_id: str,
+    lookback_days: int,
+) -> dict[str, object]:
+    settings = InfluxSettings(url, org, bucket, token, measurement)
+    return InfluxRepository(settings).delete_session(session_id, lookback_days)
+
+
+def merge_sessions_influx(
+    url: str,
+    org: str,
+    bucket: str,
+    token: str,
+    measurement: str,
+    source_session_id: str,
+    target_session_id: str,
+    lookback_days: int,
+    delete_source: bool,
+) -> dict[str, object]:
+    settings = InfluxSettings(url, org, bucket, token, measurement)
+    return InfluxRepository(settings).merge_sessions(
+        source_session_id,
+        target_session_id,
+        lookback_days,
+        delete_source,
+    )
+
+
 def fmt_number(value: float, suffix: str, digits: int = 1) -> str:
     if not math.isfinite(value):
         return "—"
     return f"{value:.{digits}f}{suffix}"
+
+
+def fmt_timestamp(value: object) -> str:
+    if value is None:
+        return "—"
+    timestamp = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(timestamp):
+        return "—"
+    return f"{timestamp:%Y-%m-%d %H:%M:%S} UTC"
+
+
+def build_admin_info_rows(admin_info: dict[str, object]) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for key, label, formatter in (
+        ("session_id", "Session ID", str),
+        ("first_seen", "Primo record", fmt_timestamp),
+        ("last_seen", "Ultimo record", fmt_timestamp),
+        ("duration_hours", "Durata (h)", lambda value: f"{float(value):.2f}"),
+        ("record_count", "Numero record", lambda value: f"{int(value)}"),
+        ("sample_count", "Numero campioni temporali", lambda value: f"{int(value)}"),
+        ("measurement_count", "Numero measurement", lambda value: f"{int(value)}"),
+        ("field_count", "Numero campi", lambda value: f"{int(value)}"),
+        ("device_id", "Device ID", str),
+        ("schema", "Schema", str),
+        ("type", "Tipo", str),
+        ("kind", "Classificazione", str),
+    ):
+        value = admin_info.get(key)
+        if value is not None and value != "":
+            rows.append((label, formatter(value)))
+    return rows
 
 
 def get_compare_metric_options(analyses: list[pd.DataFrame]) -> list[tuple[str, str]]:
@@ -103,11 +252,25 @@ with st.sidebar:
     bucket = st.text_input("Bucket", value=defaults.bucket)
     measurement = st.text_input("Measurement", value=defaults.measurement)
     token_override = st.text_input(
-        "Token read-only (override facoltativo)", value="", type="password"
+        "Token InfluxDB (override facoltativo)", value="", type="password"
     )
     token = token_override or defaults.token
     if defaults.token:
         st.caption("Token caricato dall'ambiente locale.")
+    management_enabled = st.checkbox(
+        "Abilita gestione sessioni",
+        value=False,
+        help="Mostra strumenti amministrativi per info, merge e delete.",
+    )
+    if management_enabled:
+        st.caption("Per merge e delete serve un token con permessi write/delete.")
+        app_view = st.radio(
+            "Vista",
+            ["Analyzer", "Session Manager"],
+            index=0,
+        )
+    else:
+        app_view = "Analyzer"
     lookback_days = st.number_input(
         "Sessioni degli ultimi giorni", min_value=1, max_value=3650, value=365
     )
@@ -115,7 +278,7 @@ with st.sidebar:
         st.cache_data.clear()
 
 if not token:
-    st.info("Inserisci un token InfluxDB con permessi di sola lettura.")
+    st.info("Inserisci un token InfluxDB. Per merge e delete servono anche permessi write/delete.")
     st.stop()
 
 try:
@@ -130,10 +293,227 @@ if sessions.empty:
     st.warning("Nessuna sessione trovata nell'intervallo selezionato.")
     st.stop()
 
-labels = {
+session_labels = {
     row.session_id: f"{row.session_id} · {row.last_seen:%Y-%m-%d %H:%M} UTC"
     for row in sessions.itertuples()
 }
+
+if app_view == "Session Manager":
+    st.subheader("Session Manager")
+    st.caption("Filtro rapido delle sessioni sospette o di test, preview merge e cancellazione definitiva.")
+
+    with st.spinner("Carico il catalogo amministrativo delle sessioni..."):
+        management_catalog = load_management_catalog(
+            url,
+            org,
+            bucket,
+            token,
+            measurement,
+            int(lookback_days),
+            tuple(sessions["session_id"].tolist()),
+        )
+
+    if management_catalog.empty:
+        st.warning("Nessuna sessione disponibile per la gestione.")
+        st.stop()
+
+    filter_col_a, filter_col_b = st.columns([1, 1])
+    category_filter = filter_col_a.selectbox(
+        "Filtro sessioni",
+        ["Tutte", "Solo test", "Solo failed", "Solo sospette", "Test o failed"],
+    )
+    max_records_filter = filter_col_b.number_input(
+        "Mostra anche solo fino a N record",
+        min_value=0,
+        max_value=1_000_000,
+        value=0,
+        step=10,
+        help="0 disabilita questo filtro.",
+    )
+
+    filtered_catalog = management_catalog.copy()
+    if category_filter == "Solo test":
+        filtered_catalog = filtered_catalog[filtered_catalog["is_test"]]
+    elif category_filter == "Solo failed":
+        filtered_catalog = filtered_catalog[filtered_catalog["is_failed"]]
+    elif category_filter == "Solo sospette":
+        filtered_catalog = filtered_catalog[filtered_catalog["is_suspicious"]]
+    elif category_filter == "Test o failed":
+        filtered_catalog = filtered_catalog[
+            filtered_catalog["is_test"] | filtered_catalog["is_failed"]
+        ]
+
+    if max_records_filter > 0:
+        filtered_catalog = filtered_catalog[
+            filtered_catalog["record_count"] <= int(max_records_filter)
+        ]
+
+    if filtered_catalog.empty:
+        st.info("Nessuna sessione corrisponde ai filtri attuali.")
+        st.stop()
+
+    summary_cols = st.columns(4)
+    summary_cols[0].metric("Sessioni filtrate", f"{len(filtered_catalog)}")
+    summary_cols[1].metric("Sessioni test", f"{int(filtered_catalog['is_test'].sum())}")
+    summary_cols[2].metric("Sessioni failed", f"{int(filtered_catalog['is_failed'].sum())}")
+    summary_cols[3].metric("Sessioni sospette", f"{int(filtered_catalog['is_suspicious'].sum())}")
+
+    st.dataframe(
+        filtered_catalog[
+            [
+                "session_id",
+                "last_seen",
+                "duration_hours",
+                "record_count",
+                "sample_count",
+                "kind",
+                "reasons",
+            ]
+        ],
+        width="stretch",
+        hide_index=True,
+    )
+
+    managed_session_id = st.selectbox(
+        "Sessione da gestire",
+        filtered_catalog["session_id"].tolist(),
+        format_func=lambda value: session_labels.get(value, value),
+    )
+    admin_info = load_session_admin_info(
+        url,
+        org,
+        bucket,
+        token,
+        measurement,
+        managed_session_id,
+        int(lookback_days),
+    )
+
+    info_tab, merge_tab, delete_tab = st.tabs(["Info", "Merge", "Delete"])
+
+    with info_tab:
+        info_rows = build_admin_info_rows(admin_info)
+        if info_rows:
+            st.dataframe(
+                pd.DataFrame(info_rows, columns=["Campo", "Valore"]),
+                width="stretch",
+                hide_index=True,
+            )
+        reasons = admin_info.get("reasons", []) if isinstance(admin_info, dict) else []
+        if isinstance(reasons, list) and reasons:
+            st.caption("Motivi classificazione")
+            st.write(", ".join(str(reason) for reason in reasons))
+        measurements = admin_info.get("measurements", []) if isinstance(admin_info, dict) else []
+        if isinstance(measurements, list) and measurements:
+            st.caption("Measurement coinvolti")
+            st.write(", ".join(str(item) for item in measurements))
+        fields = admin_info.get("fields", []) if isinstance(admin_info, dict) else []
+        if isinstance(fields, list) and fields:
+            st.caption("Campi trovati")
+            st.write(", ".join(str(item) for item in fields))
+
+    with merge_tab:
+        merge_targets = [value for value in sessions["session_id"].tolist() if value != managed_session_id]
+        if not merge_targets:
+            st.info("Serve almeno un'altra sessione per eseguire un merge.")
+        else:
+            merge_target = st.selectbox(
+                "Sessione destinazione",
+                merge_targets,
+                format_func=lambda value: session_labels.get(value, value),
+                key=f"manager_merge_target_{managed_session_id}",
+            )
+            preview = preview_session_merge(
+                url,
+                org,
+                bucket,
+                token,
+                measurement,
+                managed_session_id,
+                merge_target,
+                int(lookback_days),
+            )
+            preview_cols = st.columns(4)
+            preview_cols[0].metric("Record sorgente", f"{preview['source_record_count']}")
+            preview_cols[1].metric("Record target", f"{preview['target_record_count']}")
+            preview_cols[2].metric("Overlap punti", f"{preview['overlap_point_count']}")
+            preview_cols[3].metric("Nuovi punti stimati", f"{preview['new_point_count']}")
+            st.caption(
+                f"Timestamp sovrapposti: {preview['overlap_timestamp_count']}. "
+                "L'overlap confronta timestamp, measurement, field e tag, ignorando il session_id."
+            )
+            if preview.get("would_create_target"):
+                st.info("La sessione destinazione oggi non esiste ancora: il merge la creerà.")
+
+            delete_source_after_merge = st.checkbox(
+                "Elimina la sessione sorgente dopo la copia",
+                value=False,
+                key=f"manager_merge_delete_source_{managed_session_id}",
+            )
+            merge_phrase = f"MERGE {managed_session_id} -> {merge_target}"
+            merge_confirmation = st.text_input(
+                "Conferma merge",
+                value="",
+                help=f"Scrivi esattamente: {merge_phrase}",
+                key=f"manager_merge_confirmation_{managed_session_id}",
+            )
+            if st.button("Esegui merge", key=f"manager_merge_button_{managed_session_id}"):
+                if merge_confirmation.strip() != merge_phrase:
+                    st.error("Conferma non valida. Copia la frase completa prima di procedere.")
+                else:
+                    with st.spinner("Merge in corso su InfluxDB..."):
+                        result = merge_sessions_influx(
+                            url,
+                            org,
+                            bucket,
+                            token,
+                            measurement,
+                            managed_session_id,
+                            merge_target,
+                            int(lookback_days),
+                            delete_source_after_merge,
+                        )
+                    st.cache_data.clear()
+                    st.success(
+                        "Merge completato: "
+                        f"copiati {result['copied_records']} record in {result['target_session_id']}."
+                    )
+                    st.rerun()
+
+    with delete_tab:
+        delete_phrase = f"DELETE {managed_session_id}"
+        delete_confirmation = st.text_input(
+            "Conferma delete",
+            value="",
+            help=f"Scrivi esattamente: {delete_phrase}",
+            key=f"manager_delete_confirmation_{managed_session_id}",
+        )
+        st.warning(
+            "Questa operazione elimina definitivamente tutti i record con questo session_id dal bucket InfluxDB."
+        )
+        if st.button("Elimina definitivamente", key=f"manager_delete_button_{managed_session_id}"):
+            if delete_confirmation.strip() != delete_phrase:
+                st.error("Conferma non valida. Copia la frase completa prima di procedere.")
+            else:
+                with st.spinner("Eliminazione sessione in corso..."):
+                    deleted_summary = delete_session_from_influx(
+                        url,
+                        org,
+                        bucket,
+                        token,
+                        measurement,
+                        managed_session_id,
+                        int(lookback_days),
+                    )
+                st.cache_data.clear()
+                st.success(
+                    "Sessione eliminata: "
+                    f"rimossi {deleted_summary['record_count']} record da InfluxDB."
+                )
+                st.rerun()
+
+    st.stop()
+
 analysis_mode = st.radio(
     "Modalità",
     ["Single Session", "Compare Sessions"],
@@ -144,7 +524,7 @@ if analysis_mode == "Single Session":
     session_id = st.selectbox(
         "Sessione",
         sessions["session_id"].tolist(),
-        format_func=lambda value: labels[value],
+        format_func=lambda value: session_labels[value],
     )
 else:
     if "compare_offsets" not in st.session_state:
@@ -154,7 +534,7 @@ else:
     selected_session_ids = st.multiselect(
         "Sessioni",
         sessions["session_id"].tolist(),
-        format_func=lambda value: labels[value],
+        format_func=lambda value: session_labels[value],
     )
     if len(selected_session_ids) < 2:
         st.info("Seleziona almeno due sessioni per la modalità Compare Sessions.")
@@ -220,6 +600,63 @@ if analysis_mode == "Single Session":
             minimum_slope_points=minimum_slope_points,
         )
         summary = summarize_session(analysis)
+
+        single_view = st.radio(
+            "Visualizzazione singola",
+            ["Serie temporali", "Correlazione 2 variabili"],
+            horizontal=True,
+        )
+        if single_view == "Correlazione 2 variabili":
+            metric_options = get_compare_metric_options([analysis])
+            if not metric_options:
+                st.info("Le metriche disponibili per questo dataframe non permettono una correlazione utile.")
+            else:
+                metric_names = [name for name, _label in metric_options]
+                x_metric = st.selectbox(
+                    "Variabile X",
+                    metric_names,
+                    format_func=lambda value: next(
+                        label for name, label in metric_options if name == value
+                    ),
+                    index=0,
+                )
+                y_metric = st.selectbox(
+                    "Variabile Y",
+                    metric_names,
+                    format_func=lambda value: next(
+                        label for name, label in metric_options if name == value
+                    ),
+                    index=1 if len(metric_names) > 1 else 0,
+                )
+                if x_metric != y_metric:
+                    correlation_figure = go.Figure()
+                    x_values = analysis[x_metric]
+                    y_values = analysis[y_metric]
+                    valid = x_values.notna() & y_values.notna()
+                    correlation_figure.add_trace(
+                        go.Scatter(
+                            x=x_values[valid],
+                            y=y_values[valid],
+                            mode="lines+markers",
+                            name=session_id,
+                            hovertemplate=(
+                                f"{session_id}<br>{x_metric} = %{{x:.3f}}<br>{y_metric} = %{{y:.3f}}<extra></extra>"
+                            ),
+                        )
+                    )
+                    correlation_figure.update_layout(
+                        title="Correlazione tra due variabili",
+                        xaxis_title=next(
+                            label for name, label in metric_options if name == x_metric
+                        ),
+                        yaxis_title=next(
+                            label for name, label in metric_options if name == y_metric
+                        ),
+                        hovermode="closest",
+                    )
+                    st.plotly_chart(correlation_figure, width="stretch")
+                else:
+                    st.info("Scegli due variabili distinte per il grafico di correlazione.")
     except Exception as error:
         st.error(f"Analisi della sessione non riuscita: {error}")
         st.stop()
@@ -227,6 +664,7 @@ else:
     compare_analyses: list[dict[str, object]] = []
     compare_errors: list[str] = []
     offset_hours: dict[str, float] = {}
+    compare_metadata: dict[str, dict[str, object]] = {}
 
     with st.expander("Offset temporali", expanded=True):
         for session_name in selected_session_ids:
@@ -283,6 +721,16 @@ else:
                 analysis,
                 float(offset_hours[session_name]) * 3_600_000.0,
             )
+            metadata = load_session_metadata(
+                url,
+                org,
+                bucket,
+                token,
+                measurement,
+                session_name,
+                int(lookback_days),
+            )
+            compare_metadata[session_name] = metadata if isinstance(metadata, dict) else {}
             compare_analyses.append(
                 {"session_id": session_name, "analysis": transformed}
             )
@@ -305,19 +753,27 @@ else:
         st.stop()
 
     metric_names = [name for name, _label in metric_options]
-    compare_metric = st.selectbox(
-        "Compare metric",
-        metric_names,
-        format_func=lambda value: next(
-            label for name, label in metric_options if name == value
-        ),
-    )
 
     compare_view = st.radio(
         "Visualizzazione",
         ["Serie temporali", "Correlazione 2 variabili"],
         horizontal=True,
     )
+
+    if compare_view == "Serie temporali":
+        compare_metrics = st.multiselect(
+            "Metriche da confrontare",
+            metric_names,
+            default=[metric_names[0]] if metric_names else [],
+            format_func=lambda value: next(
+                label for name, label in metric_options if name == value
+            ),
+        )
+        if not compare_metrics:
+            st.info("Seleziona almeno una metrica per la vista temporale.")
+            st.stop()
+    else:
+        compare_metrics = []
 
     if compare_view == "Correlazione 2 variabili":
         x_metric = st.selectbox(
@@ -340,11 +796,11 @@ else:
             st.info("Scegli due variabili distinte per il grafico di correlazione.")
             st.stop()
 
-    compare_figure = go.Figure()
-    for entry in compare_analyses:
-        analysis = entry["analysis"]
-        offset_hours_value = float(st.session_state.compare_offsets.get(str(entry["session_id"]), 0.0))
-        if compare_view == "Correlazione 2 variabili":
+    if compare_view == "Correlazione 2 variabili":
+        compare_figure = go.Figure()
+        for entry in compare_analyses:
+            analysis = entry["analysis"]
+            offset_hours_value = float(st.session_state.compare_offsets.get(str(entry["session_id"]), 0.0))
             if x_metric not in analysis.columns or y_metric not in analysis.columns:
                 continue
             x_values = analysis[x_metric]
@@ -363,29 +819,11 @@ else:
                     ),
                 )
             )
-        else:
-            if compare_metric not in analysis.columns:
-                continue
-            values = analysis[compare_metric]
-            if not values.notna().any():
-                continue
-            compare_figure.add_trace(
-                go.Scatter(
-                    x=analysis["t_relative_h"],
-                    y=values,
-                    mode="lines+markers",
-                    name=f"{entry['session_id']} (offset {offset_hours_value:+.2f} h)",
-                    hovertemplate=(
-                        f"{entry['session_id']}<br>offset = {offset_hours_value:+.2f} h<br>t = %{{x:.2f}} h<br>y = %{{y:.3f}}<extra></extra>"
-                    ),
-                )
-            )
 
-    if len(compare_figure.data) == 0:
-        st.info("Nessuna curva disponibile per la metrica selezionata.")
-        st.stop()
+        if len(compare_figure.data) == 0:
+            st.info("Nessuna curva disponibile per la correlazione selezionata.")
+            st.stop()
 
-    if compare_view == "Correlazione 2 variabili":
         compare_figure.update_layout(
             title="Correlazione tra due variabili",
             xaxis_title=next(
@@ -396,23 +834,99 @@ else:
             ),
             hovermode="closest",
         )
+        st.plotly_chart(compare_figure, width="stretch")
     else:
-        compare_figure.add_vline(
-            x=0,
-            line_dash="dash",
-            line_color="rgba(90, 90, 90, 0.8)",
-            annotation_text=alignment_event,
-            annotation_position="top left",
+        metric_labels = {
+            name: label for name, label in metric_options if name in compare_metrics
+        }
+        compare_figure = make_subplots(
+            rows=1,
+            cols=len(compare_metrics),
+            subplot_titles=[metric_labels[metric] for metric in compare_metrics],
+            shared_yaxes=False,
         )
+        for metric_index, metric_name in enumerate(compare_metrics, start=1):
+            for entry in compare_analyses:
+                analysis = entry["analysis"]
+                offset_hours_value = float(st.session_state.compare_offsets.get(str(entry["session_id"]), 0.0))
+                if metric_name not in analysis.columns:
+                    continue
+                values = analysis[metric_name]
+                if not values.notna().any():
+                    continue
+                compare_figure.add_trace(
+                    go.Scatter(
+                        x=analysis["t_relative_h"],
+                        y=values,
+                        mode="lines+markers",
+                        name=f"{entry['session_id']} · {metric_labels[metric_name]}",
+                        hovertemplate=(
+                            f"{entry['session_id']}<br>offset = {offset_hours_value:+.2f} h<br>{metric_labels[metric_name]} = %{{y:.3f}}<br>t = %{{x:.2f}} h<extra></extra>"
+                        ),
+                    ),
+                    row=1,
+                    col=metric_index,
+                )
+            compare_figure.add_vline(
+                x=0,
+                line_dash="dash",
+                line_color="rgba(90, 90, 90, 0.8)",
+                annotation_text=alignment_event if metric_index == 1 else "",
+                annotation_position="top left",
+                row=1,
+                col=metric_index,
+            )
+            compare_figure.update_xaxes(title_text="Tempo relativo (h)", row=1, col=metric_index)
+            compare_figure.update_yaxes(
+                title_text=metric_labels[metric_name],
+                row=1,
+                col=metric_index,
+            )
+
+        if len(compare_figure.data) == 0:
+            st.info("Nessuna curva disponibile per le metriche selezionate.")
+            st.stop()
+
         compare_figure.update_layout(
             title="Confronto sessioni su tempo relativo",
-            xaxis_title="Tempo relativo (h)",
-            yaxis_title=next(
-                label for name, label in metric_options if name == compare_metric
-            ),
             hovermode="x unified",
+            height=420 if len(compare_metrics) == 1 else 420,
         )
-    st.plotly_chart(compare_figure, width="stretch")
+        st.plotly_chart(compare_figure, width="stretch")
+
+    with st.expander("Metadati sessioni", expanded=True):
+        for session_name in selected_session_ids:
+            metadata = compare_metadata.get(session_name, {})
+            st.markdown(f"**{session_name}**")
+            if not metadata:
+                st.caption("Nessun metadato disponibile per questa sessione.")
+                continue
+            metadata_rows = []
+            for key, label in (
+                ("_time", "Timestamp"),
+                ("session_id", "Session ID"),
+                ("device_id", "Device ID"),
+                ("schema", "Schema"),
+                ("type", "Tipo"),
+            ):
+                if key in metadata and metadata[key] is not None:
+                    metadata_rows.append((label, str(metadata[key])))
+            if metadata_rows:
+                st.dataframe(
+                    pd.DataFrame(metadata_rows, columns=["Campo", "Valore"]),
+                    width="stretch",
+                    hide_index=True,
+                )
+            recipe = metadata.get("recipe", {}) if isinstance(metadata, dict) else {}
+            recipe_sections = build_recipe_sections(recipe if isinstance(recipe, dict) else None)
+            if recipe_sections:
+                for section_title, section_rows in recipe_sections:
+                    st.caption(section_title)
+                    st.dataframe(
+                        pd.DataFrame(section_rows, columns=["Parametro", "Valore"]),
+                        width="stretch",
+                        hide_index=True,
+                    )
     st.stop()
 
 if analysis_mode == "Single Session":
@@ -442,20 +956,77 @@ if analysis_mode == "Single Session":
         "Accelerazione attuale", fmt_number(summary.current_growth_accel_pct_h2, "%/h^2")
     )
 
-    recipe = session_metadata.get("recipe", {}) if isinstance(session_metadata, dict) else {}
-    recipe_rows = build_recipe_summary(recipe if isinstance(recipe, dict) else None)
+    if session_metadata:
+        with st.expander("Metadati sessione", expanded=True):
+            metadata_rows = []
+            for key, label in (
+                ("_time", "Timestamp"),
+                ("session_id", "Session ID"),
+                ("device_id", "Device ID"),
+                ("schema", "Schema"),
+                ("type", "Tipo"),
+            ):
+                if key in session_metadata and session_metadata[key] is not None:
+                    metadata_rows.append((label, str(session_metadata[key])))
+            if metadata_rows:
+                st.markdown("#### Informazioni generali")
+                st.dataframe(
+                    pd.DataFrame(metadata_rows, columns=["Campo", "Valore"]),
+                    width="stretch",
+                    hide_index=True,
+                )
 
-    if recipe_rows:
-        st.subheader("Ricetta letta dallo START")
-        st.dataframe(
-            pd.DataFrame(recipe_rows, columns=["Parametro", "Valore"]),
-            width="stretch",
-            hide_index=True,
-        )
-    elif session_metadata:
-        st.info(
-            "Ho trovato metadati di sessione ma non ancora un blocco ricetta completo."
-        )
+            recipe = session_metadata.get("recipe", {}) if isinstance(session_metadata, dict) else {}
+            recipe_sections = build_recipe_sections(recipe if isinstance(recipe, dict) else None)
+
+            if recipe_sections:
+                st.markdown("### Ricetta letta dallo START")
+                tabs = st.tabs(["Generale", "Ingredienti", "Note"])
+
+                general_rows = []
+                ingredient_rows = []
+                note_rows = []
+                for section_title, section_rows in recipe_sections:
+                    if section_title == "Generale":
+                        general_rows.extend(section_rows)
+                    elif section_title in {"Farina", "Lievito", "Sale"}:
+                        ingredient_rows.extend(section_rows)
+                    else:
+                        note_rows.extend(section_rows)
+
+                with tabs[0]:
+                    if general_rows:
+                        st.dataframe(
+                            pd.DataFrame(general_rows, columns=["Parametro", "Valore"]),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                    else:
+                        st.info("Nessun dato generale disponibile.")
+
+                with tabs[1]:
+                    if ingredient_rows:
+                        st.dataframe(
+                            pd.DataFrame(ingredient_rows, columns=["Parametro", "Valore"]),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                    else:
+                        st.info("Nessun ingrediente disponibile.")
+
+                with tabs[2]:
+                    if note_rows:
+                        st.dataframe(
+                            pd.DataFrame(note_rows, columns=["Parametro", "Valore"]),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                    else:
+                        st.info("Nessuna nota disponibile.")
+            else:
+                st.info(
+                    "Ho trovato metadati di sessione ma non ancora un blocco ricetta completo."
+                )
 
     if summary.signal_field == "dough_height_mm":
         st.warning(
