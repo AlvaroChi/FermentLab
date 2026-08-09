@@ -1614,6 +1614,15 @@ String webStatusJson() {
     json += F("\",\"reset_reason\":\"");
     json += resetReasonText(bootResetReason);
     json += F("\",\"panic_safe_mode\":true");
+    json += F(",\"boot_crash_breadcrumb\":");
+    json += String(bootCrashBreadcrumb);
+    json += F(",\"boot_crash_breadcrumb_text\":\"");
+    json += crashBreadcrumbText(bootCrashBreadcrumb);
+    json += F("\",\"last_panic_breadcrumb\":");
+    json += String(lastPanicBreadcrumb);
+    json += F(",\"last_panic_breadcrumb_text\":\"");
+    json += crashBreadcrumbText(lastPanicBreadcrumb);
+    json += '"';
     json += F(",\"measurement_enabled\":false");
     json += F(",\"session_file_enabled\":");
     json += sessionFileEnabled ? F("true") : F("false");
@@ -2113,7 +2122,7 @@ void loop() {
     }
   }
 
-  if (telemetryQueueReady) {
+  if (telemetryQueueReady && Config::INFLUX_UPLOAD_ENABLED) {
     const InfluxUploadEvent uploadEvent = influxUploader.tick();
     if (uploadEvent == InfluxUploadEvent::Sent) {
       influxFailureActive = false;

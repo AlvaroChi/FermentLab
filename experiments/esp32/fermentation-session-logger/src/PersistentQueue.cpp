@@ -27,16 +27,24 @@ bool PersistentQueue::begin(fs::FS& filesystem) {
     return false;
   }
 
-  // A power loss can leave only the final line incomplete. Keep every fully
-  // terminated record and truncate only the damaged tail.
+  // A power loss can leave an empty or partially written segment. Never
+  // mutate those files during boot: LittleFS can panic while removing the
+  // damaged entry. Keep complete records readable and start appending in a
+  // fresh segment after the highest id already present.
   File directory = filesystem_->open(Config::TELEMETRY_QUEUE_DIRECTORY);
   if (!directory || !directory.isDirectory()) {
     return false;
   }
+  bool foundSegment = false;
+  uint32_t highestSegmentId = 0;
   for (File entry = directory.openNextFile(); entry;
        entry = directory.openNextFile()) {
-    uint32_t ignored = 0;
-    if (!entry.isDirectory() && parseSegmentId(entry.name(), ignored)) {
+    uint32_t segmentId = 0;
+    if (!entry.isDirectory() && parseSegmentId(entry.name(), segmentId)) {
+      if (!foundSegment || segmentId > highestSegmentId) {
+        highestSegmentId = segmentId;
+      }
+      foundSegment = true;
       const char* rawName = entry.name();
       const char* baseName = std::strrchr(rawName, '/');
       baseName = baseName == nullptr ? rawName : baseName + 1;
@@ -77,21 +85,7 @@ bool PersistentQueue::begin(fs::FS& filesystem) {
     }
   }
   directory.close();
-  currentSegmentId_ = count == 0 ? 0 : maximumId;
-  if (count > 0) {
-    const String currentPath = segmentPath(currentSegmentId_);
-    File current = filesystem_->open(currentPath, FILE_READ);
-    if (!current) {
-      return false;
-    }
-    const size_t size = current.size();
-    current.close();
-    if (validSegmentBytes(currentPath) < size) {
-      // Never append after a partial record: doing so would make two damaged
-      // records. The valid prefix can still be uploaded from the old segment.
-      ++currentSegmentId_;
-    }
-  }
+  currentSegmentId_ = foundSegment ? highestSegmentId + 1 : 0;
   return true;
 }
 
@@ -203,6 +197,16 @@ bool PersistentQueue::scan(uint32_t* minimumId, uint32_t* maximumId,
        entry = directory.openNextFile()) {
     uint32_t id = 0;
     if (!entry.isDirectory() && parseSegmentId(entry.name(), id)) {
+      const char* rawName = entry.name();
+      const char* baseName = std::strrchr(rawName, '/');
+      baseName = baseName == nullptr ? rawName : baseName + 1;
+      const String path =
+          String(Config::TELEMETRY_QUEUE_DIRECTORY) + "/" + baseName;
+      entry.close();
+      const size_t validBytes = validSegmentBytes(path);
+      if (validBytes == 0) {
+        continue;
+      }
       if (*count == 0 || id < *minimumId) {
         *minimumId = id;
       }
@@ -210,7 +214,8 @@ bool PersistentQueue::scan(uint32_t* minimumId, uint32_t* maximumId,
         *maximumId = id;
       }
       ++*count;
-      *bytes += entry.size();
+      *bytes += validBytes;
+      continue;
     }
     entry.close();
   }
@@ -223,12 +228,11 @@ bool PersistentQueue::repairSegment(const String& path) {
   if (!file) {
     return false;
   }
-  const size_t originalSize = file.size();
   file.close();
-  if (originalSize == 0 || validSegmentBytes(path) == 0) {
-    // There is no complete record to recover.
-    return filesystem_->remove(path);
-  }
+  // Do not remove or rewrite incomplete segments here. A boot-time remove of
+  // the interrupted LittleFS entry caused lfs_alloc to divide by zero and
+  // trapped the ESP32-S3 in a permanent reboot loop. scan() ignores any file
+  // without a newline-terminated record.
   return true;
 }
 
