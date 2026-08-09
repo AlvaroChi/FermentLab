@@ -34,6 +34,15 @@ apertura/chiusura tramite pulsante:
 
 [`experiments/esp32/fermentation-session-logger/`](experiments/esp32/fermentation-session-logger/)
 
+### Milestone stabile: ESP32-S3-Zero
+
+Il logger sul Waveshare ESP32-S3-Zero ha raggiunto una milestone funzionante e
+verificata il 9 agosto 2026: START stabile, acquisizione periodica, coda
+LittleFS resistente ai reset e invio ESP32 -> Wi-Fi -> InfluxDB senza PC
+collegato alla scheda. Il riferimento e le prove eseguite sono documentati in:
+
+[`experiments/esp32/fermentation-session-logger/MILESTONE_STABLE.md`](experiments/esp32/fermentation-session-logger/MILESTONE_STABLE.md)
+
 Per compilare il firmware dalla radice del repository:
 
 ```powershell

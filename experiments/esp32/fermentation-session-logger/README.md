@@ -7,17 +7,21 @@ la perdita dell'arretrato.
 
 ## Stato del progetto
 
-Questo e' il software del primo prototipo FermentLab, pensato per sviluppo e
-prove in rete locale e non ancora come release di produzione. InfluxDB 2.x puo'
-essere eseguito su un PC, per esempio tramite Docker, oppure su un NAS sempre
-acceso. Il firmware associa il NAS alla rete Wi-Fi di casa e il PC alle altre
-reti configurate, mantenendo localmente le misure quando il server selezionato
-non e' disponibile.
+Il profilo Waveshare ESP32-S3-Zero e' una **milestone stabile, funzionante e
+verificata su hardware reale**. START, misurazione, persistenza locale, invio
+via Wi-Fi a InfluxDB, STOP e riavvio sono stati validati insieme il 9 agosto
+2026. La baseline, le prove e i comportamenti da non alterare sono descritti in
+[`MILESTONE_STABLE.md`](MILESTONE_STABLE.md).
 
-Durante una sessione il PC deve restare operativo, anche se il monitor puo'
-essere spento. LittleFS ha capacita' limitata: la gestione automatica dello
-spazio e la manutenzione dall'interfaccia web sono ancora attivita' previste
-per le successive iterazioni del prototipo.
+InfluxDB 2.x puo' essere eseguito su un PC, per esempio tramite Docker, oppure
+su un NAS sempre acceso. Il firmware associa il NAS alla rete Wi-Fi di casa e
+il PC alle altre reti configurate, mantenendo localmente le misure quando il
+server selezionato non e' disponibile. Il PC non deve essere collegato alla
+scheda: con InfluxDB sul NAS, l'ESP32 alimentato autonomamente comunica
+direttamente via Wi-Fi.
+
+LittleFS ha capacita' limitata: controllare dalla dashboard l'eventuale
+arretrato se InfluxDB resta indisponibile a lungo.
 
 ## Hardware
 
@@ -87,6 +91,8 @@ volume. InfluxDB usa timestamp con precisione in secondi.
 - connessione Wi-Fi, sincronizzazione NTP e recupero coda avvengono in
   background con una macchina a stati non bloccante;
 - **START** dalla dashboard: avvio sessione quando l'orologio e' gia' sincronizzato;
+- START non scrive sulla coda LittleFS nel percorso critico; persistenza e
+  accodamento iniziano con il normale ciclo di misura;
 - lettura immediata, poi secondo l'intervallo scelto nella bozza di sessione;
 - **STOP** dalla dashboard: chiusura e rinomina del file nella memoria dell'ESP32;
 - dopo la chiusura stampa automaticamente l'intero JSONL nel Serial Monitor;
