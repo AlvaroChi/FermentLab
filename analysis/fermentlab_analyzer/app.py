@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
 from fermentlab_analyzer import (
+    FermentationAnalysisConfig,
+    FermentationFingerprint,
     InfluxRepository,
     InfluxSettings,
     add_relative_time,
     analyze_session,
     build_recipe_sections,
     build_recipe_summary,
+    compute_fermentation_fingerprint,
+    fingerprints_to_dataframe,
+    fingerprints_to_json,
     summarize_session,
 )
 
@@ -31,20 +37,29 @@ st.set_page_config(
 APP_CSS = """
 <style>
     :root {
-        --fl-ink: #20332b;
-        --fl-muted: #64736c;
-        --fl-green: #247a52;
-        --fl-green-soft: #eaf5ef;
-        --fl-amber: #d28a26;
-        --fl-border: rgba(32, 51, 43, 0.12);
+        color-scheme: dark;
+        --fl-bg: #0b1210;
+        --fl-sidebar: #0f1814;
+        --fl-surface: #131e19;
+        --fl-surface-raised: #19261f;
+        --fl-ink: #edf6f1;
+        --fl-muted: #a9bbb1;
+        --fl-green: #69d7a0;
+        --fl-green-soft: #193c2c;
+        --fl-amber: #f1b95e;
+        --fl-border: rgba(218, 239, 228, 0.15);
     }
-    .stApp { background: #fbfcfa; }
+    .stApp { background: var(--fl-bg); color: var(--fl-ink); }
+    [data-testid="stHeader"] { background: rgba(11, 18, 16, .86); }
     .block-container {
         max-width: 1440px;
         padding-top: 2.2rem;
         padding-bottom: 4rem;
     }
-    [data-testid="stSidebar"] { background: #f3f7f4; }
+    [data-testid="stSidebar"] {
+        background: var(--fl-sidebar);
+        border-right: 1px solid var(--fl-border);
+    }
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
         color: var(--fl-muted);
     }
@@ -54,8 +69,9 @@ APP_CSS = """
         border: 1px solid var(--fl-border);
         border-radius: 18px;
         background:
-            radial-gradient(circle at 92% 10%, rgba(210,138,38,.13), transparent 28%),
-            linear-gradient(135deg, #f2f8f4 0%, #ffffff 72%);
+            radial-gradient(circle at 92% 10%, rgba(241,185,94,.13), transparent 30%),
+            linear-gradient(135deg, #14271e 0%, #101915 72%);
+        box-shadow: 0 14px 38px rgba(0, 0, 0, .22);
     }
     .fl-eyebrow {
         color: var(--fl-green);
@@ -89,20 +105,38 @@ APP_CSS = """
         padding: 1rem 1.05rem;
         border: 1px solid var(--fl-border);
         border-radius: 14px;
-        background: #ffffff;
-        box-shadow: 0 4px 18px rgba(32, 51, 43, .035);
+        background: var(--fl-surface);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, .16);
     }
     [data-testid="stMetricLabel"] { color: var(--fl-muted); }
     [data-testid="stMetricValue"] { color: var(--fl-ink); }
     [data-testid="stExpander"] {
         border-color: var(--fl-border);
         border-radius: 14px;
-        background: rgba(255,255,255,.72);
+        background: rgba(19, 30, 25, .82);
     }
-    .stButton > button { border-radius: 10px; font-weight: 650; }
+    .stButton > button {
+        border-radius: 10px;
+        font-weight: 650;
+        border-color: var(--fl-border);
+    }
+    .stButton > button:focus-visible,
+    div[data-baseweb="select"] *:focus-visible,
+    div[data-baseweb="input"] *:focus-visible {
+        outline: 2px solid var(--fl-green);
+        outline-offset: 2px;
+    }
     div[data-baseweb="select"] > div,
     div[data-baseweb="input"] > div { border-radius: 10px; }
-    [data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--fl-border);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    [data-testid="stCaptionContainer"],
+    [data-testid="stWidgetLabel"] p { color: var(--fl-muted); }
+    hr { border-color: var(--fl-border); }
+    a { color: #7ee2ae; }
     @media (max-width: 700px) {
         .block-container { padding-top: 1rem; }
         .fl-hero { padding: 1rem; border-radius: 14px; }
@@ -153,6 +187,17 @@ def load_session_metadata(
 ) -> dict[str, object]:
     settings = InfluxSettings(url, org, bucket, token, measurement)
     return InfluxRepository(settings).load_session_metadata(session_id, lookback_days)
+
+
+@st.cache_data(show_spinner=False, max_entries=50)
+def build_fingerprint(
+    analysis: pd.DataFrame,
+    session_id: str,
+    config: FermentationAnalysisConfig,
+) -> FermentationFingerprint:
+    """Cache the deterministic, CPU-bound post-processing step."""
+
+    return compute_fermentation_fingerprint(analysis, session_id, config)
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -287,6 +332,344 @@ def fmt_timestamp(value: object) -> str:
     return f"{timestamp:%Y-%m-%d %H:%M:%S} UTC"
 
 
+def fmt_duration(value_hours: float | None) -> str:
+    """Format a duration without implying sub-sample precision."""
+
+    if value_hours is None or not math.isfinite(float(value_hours)):
+        return "N.A."
+    total_seconds = max(0, int(round(float(value_hours) * 3600.0)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if total_seconds < 600 and seconds:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{hours:02d}:{minutes:02d}"
+
+
+def fmt_optional(
+    value: float | None,
+    suffix: str = "",
+    digits: int = 1,
+    *,
+    signed: bool = False,
+) -> str:
+    if value is None or not math.isfinite(float(value)):
+        return "N.A."
+    sign = "+" if signed and float(value) >= 0 else ""
+    return f"{sign}{float(value):.{digits}f}{suffix}"
+
+
+FINGERPRINT_COMPARISON_FIELDS = (
+    ("t25_h", "t25", "h", True),
+    ("t50_h", "t50", "h", True),
+    ("t75_h", "t75", "h", True),
+    ("t100_h", "Raddoppio", "h", True),
+    ("t150_h", "t150", "h", True),
+    ("t200_h", "Triplicazione", "h", True),
+    ("maximum_growth_percent", "Crescita massima", "%", True),
+    ("max_growth_rate_value_h", "Velocità massima", "signal/h", True),
+    ("max_specific_growth_rate_h", "Velocità specifica massima", "1/h", True),
+    ("lag_time_h", "Lag time", "h", True),
+    ("inflection_time_h", "Punto di flesso", "h", True),
+    ("plateau_start_time_h", "Inizio plateau", "h", True),
+    ("active_phase_duration_h", "Durata fase attiva", "h", True),
+    ("late_early_ratio", "Rapporto late/early", "×", True),
+    ("dough_temp_mean_c", "Temperatura media impasto", "°C", False),
+    ("dough_temp_at_max_growth_rate_c", "Temperatura a vmax", "°C", False),
+    ("ambient_temp_mean_c", "Temperatura media ambiente", "°C", False),
+    ("delta_t_max_c", "ΔT massimo", "°C", False),
+    ("thermal_integral_20c_c_h", "Integrale termico (20 °C)", "°C·h", True),
+    ("loss_from_peak_percent", "Perdita dal picco", "%", True),
+)
+
+FINGERPRINT_EVENT_LABELS = {
+    "lag": "Lag",
+    "t25": "t25",
+    "t50": "t50",
+    "t75": "t75",
+    "t100": "t100",
+    "max_rate": "vmax",
+    "inflection": "Flesso",
+    "plateau": "Plateau",
+    "collapse": "Collasso",
+}
+
+
+def render_fingerprint_exports(
+    fingerprints: list[FermentationFingerprint], *, key_prefix: str
+) -> None:
+    export_frame = fingerprints_to_dataframe(fingerprints)
+    csv_bytes = export_frame.to_csv(index=False, na_rep="").encode("utf-8")
+    json_text = fingerprints_to_json(fingerprints)
+    file_stem = "fermentation_fingerprint" if len(fingerprints) == 1 else "fermentation_comparison"
+    with st.container(horizontal=True):
+        st.download_button(
+            "Esporta CSV",
+            data=csv_bytes,
+            file_name=f"{file_stem}.csv",
+            mime="text/csv",
+            key=f"{key_prefix}_csv",
+            icon=":material/download:",
+            on_click="ignore",
+        )
+        st.download_button(
+            "Esporta JSON",
+            data=json_text,
+            file_name=f"{file_stem}.json",
+            mime="application/json",
+            key=f"{key_prefix}_json",
+            icon=":material/data_object:",
+            on_click="ignore",
+        )
+
+
+def build_single_fingerprint_table(
+    fingerprint: FermentationFingerprint,
+) -> pd.DataFrame:
+    metrics = fingerprint.metrics
+    rate_unit = f" {metrics.signal_unit}/h"
+    specs = [
+        ("Crescita", "Durata sessione", fmt_duration(metrics.duration_h), metrics.duration_h, None),
+        ("Crescita", "Valore iniziale", fmt_optional(metrics.initial_value, f" {metrics.signal_unit}"), metrics.initial_value, None),
+        ("Crescita", "Valore massimo", fmt_optional(metrics.max_value, f" {metrics.signal_unit}"), metrics.max_value, None),
+        ("Crescita", "Crescita massima", fmt_optional(metrics.maximum_growth_percent, "%", signed=True), metrics.maximum_growth_percent, None),
+        ("Tempi", "t10", fmt_duration(metrics.t10_h), metrics.t10_h, "t10_h"),
+        ("Tempi", "t25", fmt_duration(metrics.t25_h), metrics.t25_h, "t25_h"),
+        ("Tempi", "t50", fmt_duration(metrics.t50_h), metrics.t50_h, "t50_h"),
+        ("Tempi", "t75", fmt_duration(metrics.t75_h), metrics.t75_h, "t75_h"),
+        ("Tempi", "Raddoppio (t100)", fmt_duration(metrics.t100_h), metrics.t100_h, "t100_h"),
+        ("Tempi", "t150", fmt_duration(metrics.t150_h), metrics.t150_h, "t150_h"),
+        ("Tempi", "Triplicazione (t200)", fmt_duration(metrics.t200_h), metrics.t200_h, "t200_h"),
+        ("Tempi", "Lag time", fmt_duration(metrics.lag_time_h), metrics.lag_time_h, "lag_time_h"),
+        ("Dinamica", "Velocità massima", fmt_optional(metrics.max_growth_rate_value_h, rate_unit), metrics.max_growth_rate_value_h, "max_growth_rate_value_h"),
+        ("Dinamica", "Tempo vmax", fmt_duration(metrics.time_of_max_growth_rate_h), metrics.time_of_max_growth_rate_h, "max_growth_rate_value_h"),
+        ("Dinamica", "Velocità specifica massima", fmt_optional(metrics.max_specific_growth_rate_h, " 1/h", 3), metrics.max_specific_growth_rate_h, "max_specific_growth_rate_h"),
+        ("Dinamica", "Punto di flesso", fmt_duration(metrics.inflection_time_h), metrics.inflection_time_h, "inflection_time_h"),
+        ("Dinamica", "Early rate (25–50%)", fmt_optional(metrics.early_rate_value_h, rate_unit), metrics.early_rate_value_h, None),
+        ("Dinamica", "Late rate (75–100%)", fmt_optional(metrics.late_rate_value_h, rate_unit), metrics.late_rate_value_h, None),
+        ("Dinamica", "Rapporto late/early", fmt_optional(metrics.late_early_ratio, "×", 2), metrics.late_early_ratio, "late_early_ratio"),
+        ("Temperatura", "Temperatura iniziale impasto", fmt_optional(metrics.dough_temp_initial_c, " °C"), metrics.dough_temp_initial_c, None),
+        ("Temperatura", "Temperatura finale impasto", fmt_optional(metrics.dough_temp_final_c, " °C"), metrics.dough_temp_final_c, None),
+        ("Temperatura", "Temperatura media impasto", fmt_optional(metrics.dough_temp_mean_c, " °C"), metrics.dough_temp_mean_c, None),
+        ("Temperatura", "Temperatura min / max impasto", f"{fmt_optional(metrics.dough_temp_min_c)} / {fmt_optional(metrics.dough_temp_max_c)} °C", metrics.dough_temp_mean_c, None),
+        ("Temperatura", "Temperatura a vmax", fmt_optional(metrics.dough_temp_at_max_growth_rate_c, " °C"), metrics.dough_temp_at_max_growth_rate_c, None),
+        ("Temperatura", "Temperatura media ambiente", fmt_optional(metrics.ambient_temp_mean_c, " °C"), metrics.ambient_temp_mean_c, None),
+        ("Temperatura", "ΔT medio", fmt_optional(metrics.delta_t_mean_c, " °C", signed=True), metrics.delta_t_mean_c, None),
+        ("Temperatura", "ΔT massimo", fmt_optional(metrics.delta_t_max_c, " °C", signed=True), metrics.delta_t_max_c, None),
+        ("Termica", "Integrale termico 0 °C", fmt_optional(metrics.thermal_integral_0c_c_h, " °C·h"), metrics.thermal_integral_0c_c_h, "thermal_integral"),
+        ("Termica", "Integrale termico 4 °C", fmt_optional(metrics.thermal_integral_4c_c_h, " °C·h"), metrics.thermal_integral_4c_c_h, "thermal_integral"),
+        ("Termica", "Integrale termico 20 °C", fmt_optional(metrics.thermal_integral_20c_c_h, " °C·h"), metrics.thermal_integral_20c_c_h, "thermal_integral"),
+        ("Fasi", "Inizio plateau", fmt_duration(metrics.plateau_start_time_h), metrics.plateau_start_time_h, "plateau_start_time_h"),
+        ("Fasi", "Inizio fase attiva", fmt_duration(metrics.active_phase_start_h), metrics.active_phase_start_h, "active_phase_duration_h"),
+        ("Fasi", "Fine fase attiva", fmt_duration(metrics.active_phase_end_h), metrics.active_phase_end_h, "active_phase_duration_h"),
+        ("Fasi", "Durata fase attiva", fmt_duration(metrics.active_phase_duration_h), metrics.active_phase_duration_h, "active_phase_duration_h"),
+        ("Fasi", "Collasso", "Rilevato" if metrics.collapse_detected else "Non rilevato", True, "collapse_detected"),
+        ("Fasi", "Inizio collasso", fmt_duration(metrics.collapse_start_time_h), metrics.collapse_start_time_h, None),
+        ("Fasi", "Perdita dal picco", fmt_optional(metrics.loss_from_peak_percent, "%"), metrics.loss_from_peak_percent, None),
+    ]
+    status_labels = {
+        "valid": "Valida",
+        "unavailable": "Non disponibile",
+        "low_confidence": "Bassa confidenza",
+    }
+    rows: list[dict[str, str]] = []
+    for group, label, display_value, raw_value, quality_key in specs:
+        quality = fingerprint.quality.get(quality_key) if quality_key else None
+        if quality is not None:
+            status = quality.status
+            reason = quality.reason or ""
+        elif raw_value is None or (
+            isinstance(raw_value, float) and not math.isfinite(raw_value)
+        ):
+            status = "unavailable"
+            reason = "dato non disponibile"
+        else:
+            status = "valid"
+            reason = ""
+        rows.append(
+            {
+                "Gruppo": group,
+                "Parametro": label,
+                "Valore": display_value,
+                "Qualità": status_labels[status],
+                "Nota": reason,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_fingerprint_summary(fingerprint: FermentationFingerprint) -> None:
+    if fingerprint.warnings:
+        for warning in fingerprint.warnings:
+            st.warning(warning)
+    st.dataframe(
+        build_single_fingerprint_table(fingerprint),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Gruppo": st.column_config.TextColumn(pinned=True),
+            "Parametro": st.column_config.TextColumn(pinned=True),
+        },
+    )
+    render_fingerprint_exports([fingerprint], key_prefix="single_fingerprint")
+
+
+def build_fingerprint_comparison(
+    fingerprints: list[FermentationFingerprint],
+) -> tuple[pd.DataFrame, set[str]]:
+    signal_units = {fingerprint.metrics.signal_unit for fingerprint in fingerprints}
+    rows: list[dict[str, object]] = []
+    comparable_labels: set[str] = set()
+    for field_name, label, unit, _percentage_allowed in FINGERPRINT_COMPARISON_FIELDS:
+        display_unit = (
+            f"{next(iter(signal_units))}/h"
+            if unit == "signal/h" and len(signal_units) == 1
+            else "unità segnale/h"
+            if unit == "signal/h"
+            else unit
+        )
+        row: dict[str, object] = {"Metrica": label, "Unità": display_unit}
+        for fingerprint in fingerprints:
+            row[fingerprint.metrics.session_id] = getattr(
+                fingerprint.metrics, field_name
+            )
+        rows.append(row)
+        if unit != "signal/h" or len(signal_units) == 1:
+            comparable_labels.add(label)
+    return pd.DataFrame(rows).set_index("Metrica"), comparable_labels
+
+
+def style_fingerprint_comparison(
+    comparison: pd.DataFrame, comparable_labels: set[str]
+) -> pd.io.formats.style.Styler:
+    session_columns = [column for column in comparison.columns if column != "Unità"]
+
+    def highlight_extrema(row: pd.Series) -> list[str]:
+        styles = ["" for _ in row.index]
+        if row.name not in comparable_labels:
+            return styles
+        numeric = pd.to_numeric(row[session_columns], errors="coerce").dropna()
+        if len(numeric) < 2 or float(numeric.min()) == float(numeric.max()):
+            return styles
+        for column, color in (
+            (numeric.idxmin(), "background-color: #4a351b; color: #fff4dc"),
+            (numeric.idxmax(), "background-color: #183f2b; color: #eafff3"),
+        ):
+            styles[row.index.get_loc(column)] = color
+        return styles
+
+    numeric_format = {
+        column: (lambda value: "N.A." if pd.isna(value) else f"{float(value):.2f}")
+        for column in session_columns
+    }
+    return comparison.style.apply(highlight_extrema, axis=1).format(numeric_format)
+
+
+def build_reference_difference(
+    fingerprints: list[FermentationFingerprint],
+    reference_session_id: str,
+    target_session_id: str,
+) -> pd.DataFrame:
+    by_session = {
+        fingerprint.metrics.session_id: fingerprint.metrics
+        for fingerprint in fingerprints
+    }
+    reference = by_session[reference_session_id]
+    target = by_session[target_session_id]
+    signal_units = {reference.signal_unit, target.signal_unit}
+    rows: list[dict[str, object]] = []
+    for field_name, label, unit, percentage_allowed in FINGERPRINT_COMPARISON_FIELDS:
+        if unit == "signal/h" and len(signal_units) > 1:
+            continue
+        display_unit = (
+            f"{reference.signal_unit}/h" if unit == "signal/h" else unit
+        )
+        reference_value = getattr(reference, field_name)
+        target_value = getattr(target, field_name)
+        difference = (
+            float(target_value) - float(reference_value)
+            if reference_value is not None and target_value is not None
+            else None
+        )
+        percentage_difference = (
+            difference / abs(float(reference_value)) * 100.0
+            if percentage_allowed
+            and difference is not None
+            and abs(float(reference_value)) > np.finfo(float).eps
+            else None
+        )
+        rows.append(
+            {
+                "Metrica": label,
+                "Unità": display_unit,
+                "Riferimento": reference_value,
+                "Confronto": target_value,
+                "Differenza": difference,
+                "Differenza %": percentage_difference,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_multi_fingerprint_summary(
+    fingerprints: list[FermentationFingerprint],
+) -> None:
+    comparison, comparable_labels = build_fingerprint_comparison(fingerprints)
+    low_confidence_sessions = [
+        fingerprint.metrics.session_id
+        for fingerprint in fingerprints
+        if fingerprint.warnings
+    ]
+    if low_confidence_sessions:
+        st.warning(
+            "Metriche a bassa confidenza per: "
+            + ", ".join(low_confidence_sessions)
+            + ". Il JSON esportato include i motivi dettagliati."
+        )
+    st.caption(
+        "Verde = massimo, ambra = minimo. I colori distinguono gli estremi e "
+        "non indicano quale risultato sia migliore."
+    )
+    st.dataframe(
+        style_fingerprint_comparison(comparison, comparable_labels),
+        width="stretch",
+    )
+    render_fingerprint_exports(
+        fingerprints,
+        key_prefix="multi_fingerprint",
+    )
+
+    with st.expander("Differenze rispetto a una sessione", expanded=False):
+        session_ids = [
+            fingerprint.metrics.session_id for fingerprint in fingerprints
+        ]
+        reference_session_id = st.selectbox(
+            "Sessione di riferimento",
+            session_ids,
+            key="fingerprint_reference_session",
+        )
+        target_session_id = st.selectbox(
+            "Sessione da confrontare",
+            [value for value in session_ids if value != reference_session_id],
+            key="fingerprint_target_session",
+        )
+        difference_frame = build_reference_difference(
+            fingerprints,
+            reference_session_id,
+            target_session_id,
+        )
+        st.dataframe(
+            difference_frame,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Riferimento": st.column_config.NumberColumn(format="%.2f"),
+                "Confronto": st.column_config.NumberColumn(format="%.2f"),
+                "Differenza": st.column_config.NumberColumn(format="%+.2f"),
+                "Differenza %": st.column_config.NumberColumn(format="%+.1f%%"),
+            },
+        )
+
+
 def build_admin_info_rows(admin_info: dict[str, object]) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
     for key, label, formatter in (
@@ -313,7 +696,11 @@ def get_compare_metric_options(analyses: list[pd.DataFrame]) -> list[tuple[str, 
     metric_candidates = [
         ("volume_ml", "Volume"),
         ("dough_height_mm", "Altezza impasto"),
+        ("relative_growth", "Crescita relativa (×)"),
         ("growth_pct", "Crescita (%)"),
+        ("growth_rate_value_h", "Velocità assoluta"),
+        ("specific_growth_rate_h", "Velocità specifica (1/h)"),
+        ("delta_t_c", "ΔT impasto-ambiente"),
         ("temperature_dough_c", "Temperatura impasto"),
         ("temperature_ambient_c", "Temperatura ambiente"),
         ("growth_rate_pct_h", "Velocità crescita (%/h)"),
@@ -351,28 +738,41 @@ def style_figure(figure: go.Figure, *, height: int = 440) -> go.Figure:
         margin={"l": 24, "r": 24, "t": 64, "b": 24},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": "Inter, ui-sans-serif, system-ui, sans-serif", "color": "#35453e"},
-        title={"font": {"size": 19, "color": "#20332b"}, "x": 0.01},
+        font={"family": "Inter, ui-sans-serif, system-ui, sans-serif", "color": "#c5d4cc"},
+        title={"font": {"size": 19, "color": "#edf6f1"}, "x": 0.01},
+        colorway=[
+            "#69d7a0",
+            "#f1b95e",
+            "#79b8ff",
+            "#ff7b72",
+            "#c99aff",
+            "#f29ac2",
+            "#7fdfe6",
+        ],
         legend={
             "orientation": "h",
             "yanchor": "bottom",
             "y": 1.02,
             "xanchor": "right",
             "x": 1,
-            "bgcolor": "rgba(255,255,255,.72)",
+            "bgcolor": "rgba(19,30,25,.88)",
         },
-        hoverlabel={"bgcolor": "#ffffff", "font_size": 13},
+        hoverlabel={
+            "bgcolor": "#1b2922",
+            "bordercolor": "#52685d",
+            "font": {"color": "#f4faf7", "size": 13},
+        },
     )
     figure.update_xaxes(
         showgrid=True,
-        gridcolor="rgba(32,51,43,.08)",
+        gridcolor="rgba(218,239,228,.10)",
         zeroline=False,
         showline=True,
-        linecolor="rgba(32,51,43,.16)",
+        linecolor="rgba(218,239,228,.20)",
     )
     figure.update_yaxes(
         showgrid=True,
-        gridcolor="rgba(32,51,43,.08)",
+        gridcolor="rgba(218,239,228,.10)",
         zeroline=False,
         showline=False,
     )
@@ -426,7 +826,7 @@ st.markdown(
     """
     <div class="fl-hero">
         <div class="fl-eyebrow">FermentLab · controllo fermentazione</div>
-        <h1>Dal sensore a una decisione chiara.</h1>
+        <h1>Analisi della fermentazione</h1>
         <p>Analizza crescita e temperatura dell'impasto, confronta le sessioni e individua subito i cambi di ritmo.</p>
     </div>
     """,
@@ -772,6 +1172,12 @@ else:
     if len(selected_session_ids) < 2:
         st.info("Seleziona almeno due sessioni per la modalità Compare Sessions.")
         st.stop()
+    compare_results_view = st.segmented_control(
+        "Vista risultati",
+        ["Tabella parametri", "Grafici di confronto"],
+        default="Tabella parametri",
+        width="stretch",
+    )
 
 with st.expander("Regolazioni analisi", expanded=False):
     st.caption(
@@ -835,6 +1241,55 @@ with st.expander("Regolazioni analisi", expanded=False):
             "Campioni minimi per la stima", 3, 15, 5
         )
 
+        st.divider()
+        st.caption(
+            "Le soglie seguenti controllano lag, plateau, fase attiva e collasso. "
+            "Sono applicate solo a eventi persistenti, non a singoli campioni."
+        )
+        phase_col_a, phase_col_b = st.columns(2)
+        lag_rate_percent = phase_col_a.slider(
+            "Soglia lag e fase attiva",
+            5,
+            50,
+            20,
+            5,
+            help="Percentuale della velocità massima che identifica crescita significativa.",
+        )
+        plateau_rate_percent = phase_col_b.slider(
+            "Soglia plateau",
+            2,
+            30,
+            10,
+            1,
+            help="Il plateau richiede una velocità inferiore a questa percentuale di vmax.",
+        )
+        phase_col_c, phase_col_d = st.columns(2)
+        lag_persistence_minutes = phase_col_c.slider(
+            "Persistenza lag", 5, 120, 15, 5
+        )
+        plateau_persistence_minutes = phase_col_d.slider(
+            "Persistenza plateau", 10, 180, 30, 5
+        )
+        phase_col_e, phase_col_f = st.columns(2)
+        collapse_loss_percent = phase_col_e.slider(
+            "Perdita minima per collasso (%)", 1, 30, 5, 1
+        )
+        collapse_persistence_minutes = phase_col_f.slider(
+            "Persistenza collasso", 10, 180, 30, 5
+        )
+
+fingerprint_config = FermentationAnalysisConfig(
+    derivative_window_minutes=float(rate_window_minutes),
+    minimum_derivative_points=max(5, int(minimum_slope_points)),
+    lag_rate_fraction=float(lag_rate_percent) / 100.0,
+    lag_persistence_minutes=float(lag_persistence_minutes),
+    plateau_rate_fraction=float(plateau_rate_percent) / 100.0,
+    plateau_persistence_minutes=float(plateau_persistence_minutes),
+    collapse_loss_percent=float(collapse_loss_percent),
+    collapse_persistence_minutes=float(collapse_persistence_minutes),
+    active_rate_fraction=float(lag_rate_percent) / 100.0,
+)
+
 if analysis_mode == "Single Session":
     try:
         raw = load_session(
@@ -868,79 +1323,69 @@ if analysis_mode == "Single Session":
             minimum_slope_points=minimum_slope_points,
         )
         summary = summarize_session(analysis)
-
-        single_view = st.segmented_control(
-            "Vista grafico",
-            ["Serie temporali", "Correlazione 2 variabili"],
-            default="Serie temporali",
-            format_func=lambda value: {
-                "Serie temporali": "Andamento nel tempo",
-                "Correlazione 2 variabili": "Correlazione",
-            }[value],
+        fingerprint = build_fingerprint(
+            analysis,
+            session_id,
+            fingerprint_config,
         )
-        if single_view == "Correlazione 2 variabili":
-            metric_options = get_compare_metric_options([analysis])
-            if not metric_options:
-                st.info("Le metriche disponibili per questo dataframe non permettono una correlazione utile.")
-            else:
-                metric_names = [name for name, _label in metric_options]
-                x_metric = st.selectbox(
-                    "Variabile X",
-                    metric_names,
-                    format_func=lambda value: next(
-                        label for name, label in metric_options if name == value
-                    ),
-                    index=0,
-                )
-                y_metric = st.selectbox(
-                    "Variabile Y",
-                    metric_names,
-                    format_func=lambda value: next(
-                        label for name, label in metric_options if name == value
-                    ),
-                    index=1 if len(metric_names) > 1 else 0,
-                )
-                if x_metric == y_metric:
-                    st.info("Scegli due variabili distinte per il grafico di correlazione.")
+        analysis_attrs = analysis.attrs.copy()
+        analysis = analysis.join(fingerprint.curves)
+        analysis.attrs.update(analysis_attrs)
     except Exception as error:
         st.error(f"Analisi della sessione non riuscita: {error}")
         st.stop()
 else:
     compare_analyses: list[dict[str, object]] = []
+    compare_fingerprints: list[FermentationFingerprint] = []
     compare_errors: list[str] = []
     offset_hours: dict[str, float] = {}
     compare_metadata: dict[str, dict[str, object]] = {}
 
-    with st.expander("Offset temporali", expanded=True):
-        for session_name in selected_session_ids:
-            current_offset = float(st.session_state.compare_offsets.get(session_name, 0.0))
-            col_offset_h, col_offset_m = st.columns(2)
-            offset_hours_value = col_offset_h.number_input(
-                f"Offset · {session_name} (h)",
-                min_value=-1000.0,
-                max_value=1000.0,
-                value=current_offset,
-                step=0.25,
-                format="%.2f",
-                key=f"offset_h_{session_name}",
+    if compare_results_view == "Grafici di confronto":
+        with st.expander("Offset temporali", expanded=True):
+            for session_name in selected_session_ids:
+                current_offset = float(
+                    st.session_state.compare_offsets.get(session_name, 0.0)
+                )
+                col_offset_h, col_offset_m = st.columns(2)
+                offset_hours_value = col_offset_h.number_input(
+                    f"Offset · {session_name} (h)",
+                    min_value=-1000.0,
+                    max_value=1000.0,
+                    value=current_offset,
+                    step=0.25,
+                    format="%.2f",
+                    key=f"offset_h_{session_name}",
+                )
+                offset_minutes_value = col_offset_m.number_input(
+                    f"Offset · {session_name} (min)",
+                    min_value=-60000.0,
+                    max_value=60000.0,
+                    value=current_offset * 60.0,
+                    step=1.0,
+                    format="%.0f",
+                    key=f"offset_m_{session_name}",
+                )
+                offset_hours_value = (
+                    float(offset_hours_value)
+                    + float(offset_minutes_value) / 60.0
+                )
+                st.session_state.compare_offsets[session_name] = float(
+                    offset_hours_value
+                )
+                offset_hours[session_name] = float(offset_hours_value)
+        alignment_event = st.text_input(
+            "Etichetta dell'evento di allineamento",
+            value="Evento di riferimento",
+        )
+    else:
+        offset_hours = {
+            session_name: float(
+                st.session_state.compare_offsets.get(session_name, 0.0)
             )
-            offset_minutes_value = col_offset_m.number_input(
-                f"Offset · {session_name} (min)",
-                min_value=-60000.0,
-                max_value=60000.0,
-                value=current_offset * 60.0,
-                step=1.0,
-                format="%.0f",
-                key=f"offset_m_{session_name}",
-            )
-            offset_hours_value = float(offset_hours_value) + float(offset_minutes_value) / 60.0
-            st.session_state.compare_offsets[session_name] = float(offset_hours_value)
-            offset_hours[session_name] = float(offset_hours_value)
-
-    alignment_event = st.text_input(
-        "Etichetta dell'evento di allineamento",
-        value="Evento di riferimento",
-    )
+            for session_name in selected_session_ids
+        }
+        alignment_event = "Evento di riferimento"
 
     for session_name in selected_session_ids:
         try:
@@ -965,6 +1410,14 @@ else:
                 acceleration_window_minutes=acceleration_window_minutes,
                 minimum_slope_points=minimum_slope_points,
             )
+            fingerprint = build_fingerprint(
+                analysis,
+                session_name,
+                fingerprint_config,
+            )
+            analysis_attrs = analysis.attrs.copy()
+            analysis = analysis.join(fingerprint.curves)
+            analysis.attrs.update(analysis_attrs)
             transformed = add_relative_time(
                 analysis,
                 float(offset_hours[session_name]) * 3_600_000.0,
@@ -980,8 +1433,13 @@ else:
             )
             compare_metadata[session_name] = metadata if isinstance(metadata, dict) else {}
             compare_analyses.append(
-                {"session_id": session_name, "analysis": transformed}
+                {
+                    "session_id": session_name,
+                    "analysis": transformed,
+                    "fingerprint": fingerprint,
+                }
             )
+            compare_fingerprints.append(fingerprint)
         except Exception as error:
             compare_errors.append(f"{session_name}: {error}")
 
@@ -992,6 +1450,29 @@ else:
     if not compare_analyses:
         st.error("Nessuna sessione comparabile è stata caricata.")
         st.stop()
+
+    if compare_results_view == "Tabella parametri":
+        render_section_title(
+            "Confronto dei parametri",
+            "Le metriche sono calcolate sulla timeline originale di ogni sessione. "
+            "I valori mancanti restano esplicitamente N.A.",
+        )
+        render_multi_fingerprint_summary(compare_fingerprints)
+        with st.expander("Metadati sessioni", expanded=False):
+            for session_name in selected_session_ids:
+                metadata = compare_metadata.get(session_name, {})
+                st.markdown(f"#### {session_name}")
+                if not metadata:
+                    st.caption("Nessun metadato disponibile per questa sessione.")
+                    continue
+                render_metadata(metadata)
+        st.stop()
+
+    render_section_title(
+        "Grafici di confronto",
+        "Le curve possono essere allineate con offset senza modificare le metriche "
+        "o i dati originali.",
+    )
 
     metric_options = get_compare_metric_options(
         [entry["analysis"] for entry in compare_analyses]
@@ -1024,8 +1505,16 @@ else:
         if not compare_metrics:
             st.info("Seleziona almeno una metrica per la vista temporale.")
             st.stop()
+        compare_event_markers = st.multiselect(
+            "Eventi caratteristici sulle timeline allineate",
+            list(FINGERPRINT_EVENT_LABELS),
+            default=[],
+            format_func=lambda value: FINGERPRINT_EVENT_LABELS[value],
+            help="Ogni evento usa il tempo della sessione meno il relativo offset di visualizzazione.",
+        )
     else:
         compare_metrics = []
+        compare_event_markers = []
 
     if compare_view == "Correlazione 2 variabili":
         x_metric = st.selectbox(
@@ -1125,12 +1614,44 @@ else:
             compare_figure.add_vline(
                 x=0,
                 line_dash="dash",
-                line_color="rgba(90, 90, 90, 0.8)",
+                line_color="rgba(197, 212, 204, 0.72)",
                 annotation_text=alignment_event if metric_index == 1 else "",
                 annotation_position="top left",
                 row=1,
                 col=metric_index,
             )
+            for session_index, entry in enumerate(compare_analyses):
+                fingerprint = entry["fingerprint"]
+                session_name = str(entry["session_id"])
+                offset_value = float(
+                    st.session_state.compare_offsets.get(session_name, 0.0)
+                )
+                event_color = (
+                    "#69D7A0",
+                    "#F1B95E",
+                    "#79B8FF",
+                    "#FF7B72",
+                    "#C99AFF",
+                )[session_index % 5]
+                for event_name in compare_event_markers:
+                    event_time_h = fingerprint.events_h.get(event_name)
+                    if event_time_h is None:
+                        continue
+                    display_time_h = float(event_time_h) - offset_value
+                    compare_figure.add_vline(
+                        x=display_time_h,
+                        line_width=1,
+                        line_dash="dot",
+                        line_color=event_color,
+                        annotation_text=(
+                            f"{session_name} · {FINGERPRINT_EVENT_LABELS[event_name]}"
+                            if metric_index == 1
+                            else ""
+                        ),
+                        annotation_position="top",
+                        row=1,
+                        col=metric_index,
+                    )
             compare_figure.update_xaxes(title_text="Tempo relativo (h)", row=1, col=metric_index)
             compare_figure.update_yaxes(
                 title_text=metric_labels[metric_name],
@@ -1211,7 +1732,7 @@ if analysis_mode == "Single Session":
             x=analysis.index,
             y=analysis[summary.signal_field],
             name=f"{summary.signal_label} grezza",
-            line={"color": "rgba(120, 130, 125, 0.35)", "width": 1},
+            line={"color": "rgba(197, 212, 204, 0.48)", "width": 1},
         ),
         secondary_y=False,
     )
@@ -1221,7 +1742,7 @@ if analysis_mode == "Single Session":
                 x=analysis.index,
                 y=analysis["signal_despiked"],
                 name=f"{summary.signal_label} ripulita",
-                line={"color": "rgba(70, 110, 160, 0.6)", "width": 1.5},
+                line={"color": "rgba(121, 184, 255, 0.78)", "width": 1.5},
             ),
             secondary_y=False,
         )
@@ -1230,7 +1751,7 @@ if analysis_mode == "Single Session":
             x=analysis.index,
             y=analysis["signal_smooth"],
             name=f"{summary.signal_label} filtrata",
-            line={"color": "#2E8B57", "width": 3},
+            line={"color": "#69D7A0", "width": 3},
         ),
         secondary_y=False,
     )
@@ -1239,7 +1760,7 @@ if analysis_mode == "Single Session":
             x=analysis.index,
             y=analysis["growth_pct"],
             name="Crescita",
-            line={"color": "#D18B2C", "width": 2},
+            line={"color": "#F1B95E", "width": 2},
         ),
         secondary_y=True,
     )
@@ -1252,6 +1773,38 @@ if analysis_mode == "Single Session":
     )
     style_figure(volume_figure)
 
+    temperature_overview_figure = go.Figure()
+    if (
+        "temperature_dough_c" in analysis
+        and analysis["temperature_dough_c"].notna().any()
+    ):
+        temperature_overview_figure.add_trace(
+            go.Scatter(
+                x=analysis.index,
+                y=analysis["temperature_dough_c"],
+                name="Temperatura impasto",
+                line={"color": "#FF7B72", "width": 2},
+            )
+        )
+    if (
+        "temperature_ambient_c" in analysis
+        and analysis["temperature_ambient_c"].notna().any()
+    ):
+        temperature_overview_figure.add_trace(
+            go.Scatter(
+                x=analysis.index,
+                y=analysis["temperature_ambient_c"],
+                name="Temperatura ambiente",
+                line={"color": "#79B8FF", "width": 2},
+            )
+        )
+    temperature_overview_figure.update_layout(
+        title="Temperature",
+        hovermode="x unified",
+    )
+    temperature_overview_figure.update_yaxes(title_text="Temperatura (°C)")
+    style_figure(temperature_overview_figure, height=340)
+
     temperature_figure = make_subplots(specs=[[{"secondary_y": True}]])
     if "temperature_dough_c" in analysis:
         temperature_figure.add_trace(
@@ -1259,7 +1812,7 @@ if analysis_mode == "Single Session":
                 x=analysis.index,
                 y=analysis["temperature_dough_c"],
                 name="Temperatura impasto",
-                line={"color": "#B94A48", "width": 2},
+                line={"color": "#FF7B72", "width": 2},
             ),
             secondary_y=False,
         )
@@ -1269,7 +1822,7 @@ if analysis_mode == "Single Session":
                 x=analysis.index,
                 y=analysis["temperature_ambient_c"],
                 name="Temperatura ambiente",
-                line={"color": "#5677A6", "width": 2},
+                line={"color": "#79B8FF", "width": 2},
             ),
             secondary_y=False,
         )
@@ -1278,7 +1831,7 @@ if analysis_mode == "Single Session":
             x=analysis.index,
             y=analysis["growth_rate_pct_h"],
             name="Velocità crescita",
-            line={"color": "#6E4BA3", "width": 2},
+            line={"color": "#C99AFF", "width": 2},
         ),
         secondary_y=True,
     )
@@ -1287,7 +1840,7 @@ if analysis_mode == "Single Session":
             x=analysis.index,
             y=analysis["growth_accel_pct_h2"],
             name="Accelerazione crescita",
-            line={"color": "#AA4C8F", "width": 2, "dash": "dot"},
+            line={"color": "#F29AC2", "width": 2, "dash": "dot"},
         ),
         secondary_y=True,
     )
@@ -1300,49 +1853,225 @@ if analysis_mode == "Single Session":
     )
     style_figure(temperature_figure)
 
-    chart_tab, dynamics_tab, details_tab, data_tab = st.tabs(
-        ["Andamento", "Temperatura e dinamica", "Ricetta e dettagli", "Dati"]
+    derived_figure = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.10,
+        subplot_titles=[
+            "Velocità di crescita",
+            "Velocità specifica",
+            "Differenza termica impasto-ambiente",
+        ],
     )
+    derived_series = (
+        (
+            "growth_rate_value_h",
+            f"Velocità ({summary.signal_unit}/h)",
+            "#69D7A0",
+            1,
+        ),
+        ("specific_growth_rate_h", "Velocità specifica (1/h)", "#C99AFF", 2),
+        ("delta_t_c", "ΔT (°C)", "#F1B95E", 3),
+    )
+    for field_name, label, color, row in derived_series:
+        if field_name not in analysis or not analysis[field_name].notna().any():
+            continue
+        derived_figure.add_trace(
+            go.Scatter(
+                x=analysis.index,
+                y=analysis[field_name],
+                name=label,
+                line={"color": color, "width": 2},
+                hovertemplate=f"{label}: %{{y:.3f}}<extra></extra>",
+            ),
+            row=row,
+            col=1,
+        )
+        derived_figure.add_hline(
+            y=0,
+            line_width=1,
+            line_color="rgba(197, 212, 204, 0.25)",
+            row=row,
+            col=1,
+        )
+    derived_figure.update_yaxes(
+        title_text=f"{summary.signal_unit}/h", row=1, col=1
+    )
+    derived_figure.update_yaxes(title_text="1/h", row=2, col=1)
+    derived_figure.update_yaxes(title_text="°C", row=3, col=1)
+    derived_figure.update_xaxes(title_text="Tempo sessione", row=3, col=1)
+    derived_figure.update_layout(
+        title="Curve quantitative derivate",
+        hovermode="x unified",
+    )
+    style_figure(derived_figure, height=760)
+
+    (
+        parameters_tab,
+        chart_tab,
+        derived_tab,
+        dynamics_tab,
+        details_tab,
+        data_tab,
+    ) = st.tabs(
+        [
+            "Parametri",
+            "Grafici singoli",
+            "Curve derivate",
+            "Temperatura e dinamica",
+            "Ricetta e dettagli",
+            "Dati",
+        ]
+    )
+
+    with parameters_tab:
+        st.subheader("Parametri della lievitazione")
+        st.caption(
+            "Fingerprint quantitativo calcolato sulla timeline originale della sessione."
+        )
+        render_fingerprint_summary(fingerprint)
+
     with chart_tab:
+        single_view = st.segmented_control(
+            "Tipo di grafico",
+            ["Serie temporali", "Correlazione 2 variabili"],
+            default="Serie temporali",
+            format_func=lambda value: {
+                "Serie temporali": "Andamento nel tempo",
+                "Correlazione 2 variabili": "Correlazione",
+            }[value],
+            key="single_graph_view",
+        )
         if single_view == "Serie temporali":
-            st.plotly_chart(volume_figure, width="stretch", config={"displaylogo": False})
-        elif "metric_options" in locals() and x_metric != y_metric:
-            correlation_figure = go.Figure()
-            x_values = analysis[x_metric]
-            y_values = analysis[y_metric]
-            valid = x_values.notna() & y_values.notna()
-            correlation_figure.add_trace(
-                go.Scatter(
-                    x=x_values[valid],
-                    y=y_values[valid],
-                    mode="lines+markers",
-                    name=session_id,
-                    line={"color": "#247a52", "width": 2},
-                    marker={"size": 5, "color": "#d28a26"},
-                    hovertemplate=(
-                        f"{session_id}<br>{x_metric} = %{{x:.3f}}"
-                        f"<br>{y_metric} = %{{y:.3f}}<extra></extra>"
-                    ),
+            selected_fingerprint_events = st.multiselect(
+                "Eventi caratteristici sul grafico",
+                list(FINGERPRINT_EVENT_LABELS),
+                default=["t25", "t50", "t100", "max_rate", "plateau"],
+                format_func=lambda value: FINGERPRINT_EVENT_LABELS[value],
+                help="Le metriche usano sempre la timeline originale della sessione.",
+                key="single_graph_events",
+            )
+            event_figure = go.Figure(volume_figure)
+            for event_name in selected_fingerprint_events:
+                event_time_h = fingerprint.events_h.get(event_name)
+                if event_time_h is None:
+                    continue
+                event_timestamp = (
+                    analysis.index[0] + pd.to_timedelta(event_time_h, unit="h")
+                ).to_pydatetime(warn=False)
+                event_color = (
+                    "#F1B95E" if event_name == "collapse" else "#A9BBB1"
                 )
-            )
-            correlation_figure.update_layout(
-                title="Correlazione tra due variabili",
-                xaxis_title=next(
-                    label for name, label in metric_options if name == x_metric
-                ),
-                yaxis_title=next(
-                    label for name, label in metric_options if name == y_metric
-                ),
-                hovermode="closest",
-            )
-            style_figure(correlation_figure)
+                event_figure.add_vline(
+                    x=event_timestamp,
+                    line_width=1,
+                    line_dash="dot",
+                    line_color=event_color,
+                )
+                event_figure.add_annotation(
+                    x=event_timestamp,
+                    y=1.0,
+                    xref="x",
+                    yref="paper",
+                    text=FINGERPRINT_EVENT_LABELS[event_name],
+                    textangle=-90,
+                    showarrow=False,
+                    yanchor="bottom",
+                    font={"size": 11, "color": event_color},
+                )
             st.plotly_chart(
-                correlation_figure,
+                event_figure,
+                width="stretch",
+                config={"displaylogo": False},
+            )
+            if temperature_overview_figure.data:
+                st.plotly_chart(
+                    temperature_overview_figure,
+                    width="stretch",
+                    config={"displaylogo": False},
+                )
+            else:
+                st.caption("Questa sessione non contiene dati di temperatura.")
+        else:
+            metric_options = get_compare_metric_options([analysis])
+            if len(metric_options) < 2:
+                st.info(
+                    "I dati disponibili non permettono una correlazione tra due variabili."
+                )
+            else:
+                metric_names = [name for name, _label in metric_options]
+                x_metric = st.selectbox(
+                    "Variabile X",
+                    metric_names,
+                    format_func=lambda value: next(
+                        label for name, label in metric_options if name == value
+                    ),
+                    index=0,
+                    key="single_correlation_x",
+                )
+                y_metric = st.selectbox(
+                    "Variabile Y",
+                    metric_names,
+                    format_func=lambda value: next(
+                        label for name, label in metric_options if name == value
+                    ),
+                    index=1,
+                    key="single_correlation_y",
+                )
+                if x_metric == y_metric:
+                    st.info(
+                        "Scegli due variabili diverse per visualizzare la correlazione."
+                    )
+                else:
+                    correlation_figure = go.Figure()
+                    x_values = analysis[x_metric]
+                    y_values = analysis[y_metric]
+                    valid = x_values.notna() & y_values.notna()
+                    correlation_figure.add_trace(
+                        go.Scatter(
+                            x=x_values[valid],
+                            y=y_values[valid],
+                            mode="lines+markers",
+                            name=session_id,
+                            line={"color": "#69D7A0", "width": 2},
+                            marker={"size": 5, "color": "#F1B95E"},
+                            hovertemplate=(
+                                f"{session_id}<br>{x_metric} = %{{x:.3f}}"
+                                f"<br>{y_metric} = %{{y:.3f}}<extra></extra>"
+                            ),
+                        )
+                    )
+                    correlation_figure.update_layout(
+                        title="Correlazione tra due variabili",
+                        xaxis_title=next(
+                            label
+                            for name, label in metric_options
+                            if name == x_metric
+                        ),
+                        yaxis_title=next(
+                            label
+                            for name, label in metric_options
+                            if name == y_metric
+                        ),
+                        hovermode="closest",
+                    )
+                    style_figure(correlation_figure)
+                    st.plotly_chart(
+                        correlation_figure,
+                        width="stretch",
+                        config={"displaylogo": False},
+                    )
+
+    with derived_tab:
+        if derived_figure.data:
+            st.plotly_chart(
+                derived_figure,
                 width="stretch",
                 config={"displaylogo": False},
             )
         else:
-            st.info("Scegli due variabili diverse per visualizzare la correlazione.")
+            st.info("Dati insufficienti per calcolare le curve derivate.")
 
     with dynamics_tab:
         st.plotly_chart(

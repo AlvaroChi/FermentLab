@@ -28,6 +28,9 @@ Il codice è organizzato in modo semplice, con una separazione chiara tra:
 - [fermentlab_analyzer/processing.py](fermentlab_analyzer/processing.py): motore
   di analisi. Pulizia del segnale, smoothing, despike, baseline, crescita,
   velocità e accelerazione.
+- [fermentlab_analyzer/fingerprint.py](fermentlab_analyzer/fingerprint.py):
+  post-processing quantitativo. Estrae tempi caratteristici, velocità assolute
+  e specifiche, fasi, metriche termiche, qualità ed export machine-readable.
 - [fermentlab_analyzer/config.py](fermentlab_analyzer/config.py): impostazioni di
   connessione, leggibili da ambiente o dalla UI.
 
@@ -38,7 +41,8 @@ Il codice è organizzato in modo semplice, con una separazione chiara tra:
 3. L'utente sceglie una sessione.
 4. Il tool recupera i punti di misura della sessione e i metadati di start.
 5. L'analisi calcola una baseline, il segnale filtrato e le curve operative.
-6. La UI mostra KPI, tabella della ricetta e grafici.
+6. La UI presenta prima i parametri in forma tabellare; i grafici restano
+   disponibili come approfondimento dedicato.
 
 ## Configurazione
 
@@ -89,7 +93,9 @@ Note utili:
 ## Confronto tra sessioni
 
 Nella UI è disponibile anche una modalità "Compare Sessions" per confrontare
-più sessioni FermentLab su un asse temporale comune.
+più sessioni FermentLab. La vista iniziale è una tabella testuale dei parametri
+quantitativi; i grafici comparativi e i relativi controlli di allineamento si
+aprono scegliendo esplicitamente "Grafici di confronto".
 
 Funziona così:
 
@@ -114,3 +120,35 @@ filtra il segnale disponibile, la baseline è la mediana della finestra iniziale
 e la velocità di crescita è la pendenza della crescita percentuale nella
 finestra temporale selezionata. Quando non c'è volume, l'applicazione usa
 l'altezza e lo segnala chiaramente.
+
+## Fermentation fingerprint
+
+La prima scheda **Parametri** trasforma ogni sessione in un
+`FermentationMetrics` numerico e ne presenta i risultati per gruppo, parametro,
+valore, qualità e nota. Le schede successive raccolgono i grafici della singola
+sessione, le curve derivate e l'analisi temperatura-dinamica. La pipeline è:
+
+1. validazione e scelta automatica `volume_ml` → `dough_height_mm`;
+2. despike e smoothing già eseguiti da `analyze_session`, senza modificare i raw;
+3. regressione polinomiale locale centrata sul tempo reale, quindi compatibile
+   anche con sampling non uniforme;
+4. derivate della curva elaborata;
+5. soglie interpolate, fasi, temperature e integrali termici.
+
+I tempi `t10`…`t200` usano interpolazione lineare tra i campioni che
+circondano la prima soglia. Se una soglia non viene raggiunta il valore resta
+`N.A.`.
+
+Il **lag time** è l'inizio del primo intervallo continuo in cui la velocità è
+almeno una frazione configurabile di `vmax` (20% di default) per la durata
+minima configurata. Il **plateau** richiede, dopo `vmax` e almeno +50% di
+crescita, una velocità in valore assoluto inferiore alla frazione configurata
+di `vmax` per un intervallo continuo. Il **collasso** richiede un picco
+significativo e una perdita dal massimo superiore sia alla percentuale sia
+alla durata configurate: una singola oscillazione non è sufficiente.
+
+Ogni evento complesso espone uno stato `valid`, `unavailable` oppure
+`low_confidence`. Il confronto multi-sessione calcola le metriche sulla
+timeline originale; gli offset restano esclusivamente trasformazioni di
+visualizzazione. CSV e JSON conservano valori numerici, unità e qualità senza
+convertire le metriche in sole stringhe formattate.
