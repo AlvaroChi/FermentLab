@@ -41,8 +41,8 @@ Il codice è organizzato in modo semplice, con una separazione chiara tra:
 3. L'utente sceglie una sessione.
 4. Il tool recupera i punti di misura della sessione e i metadati di start.
 5. L'analisi calcola una baseline, il segnale filtrato e le curve operative.
-6. La UI presenta prima i parametri in forma tabellare; i grafici restano
-   disponibili come approfondimento dedicato.
+6. La UI presenta prima i parametri in forma tabellare; lo switch evidente
+   **TESTO | GRAFICI** apre i grafici come approfondimento dedicato.
 
 ## Configurazione
 
@@ -78,6 +78,9 @@ Note utili:
   non era ancora stabile al momento dello START;
 - se il bucket contiene un record `session_start` con il blocco `recipe`,
   l'interfaccia mostra i parametri della ricetta sotto ai KPI.
+- negli strumenti amministrativi, la scheda **Elimina sessioni** consente di
+  selezionare una o più sessioni con checkbox e mostra una conferma finale con
+  durata totale e numero di record, senza richiedere frasi da copiare.
 
 ## Modifiche tipiche per uno sviluppatore
 
@@ -94,8 +97,8 @@ Note utili:
 
 Nella UI è disponibile anche una modalità "Compare Sessions" per confrontare
 più sessioni FermentLab. La vista iniziale è una tabella testuale dei parametri
-quantitativi; i grafici comparativi e i relativi controlli di allineamento si
-aprono scegliendo esplicitamente "Grafici di confronto".
+quantitativi; lo switch **TESTO | GRAFICI** apre i grafici comparativi e i
+relativi controlli di allineamento.
 
 Funziona così:
 

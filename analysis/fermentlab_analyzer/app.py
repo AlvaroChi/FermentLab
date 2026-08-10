@@ -297,6 +297,74 @@ def delete_session_from_influx(
     return InfluxRepository(settings).delete_session(session_id, lookback_days)
 
 
+@st.dialog("Conferma cancellazione")
+def confirm_batch_session_delete(
+    url: str,
+    org: str,
+    bucket: str,
+    token: str,
+    measurement: str,
+    lookback_days: int,
+    selected_session_ids: tuple[str, ...],
+    total_minutes: int,
+    total_records: int,
+) -> None:
+    session_count = len(selected_session_ids)
+    session_word = "sessione" if session_count == 1 else "sessioni"
+    st.warning(
+        f"Sei sicuro di voler cancellare **{session_count} {session_word}** "
+        f"con una durata totale di **{total_minutes} minuti** "
+        f"(**{total_records} record**)?"
+    )
+    st.caption("La cancellazione è definitiva e rimuove i dati da InfluxDB.")
+    with st.expander("Sessioni selezionate", expanded=False):
+        for session_id in selected_session_ids:
+            st.write(f"• {session_id}")
+
+    with st.container(horizontal=True):
+        if st.button(
+            "Annulla",
+            icon=":material/close:",
+            key="cancel_batch_session_delete",
+            width="stretch",
+        ):
+            st.rerun(scope="app")
+        if st.button(
+            f"Sì, cancella {session_count}",
+            icon=":material/delete:",
+            key="confirm_batch_session_delete",
+            type="primary",
+            width="stretch",
+        ):
+            deleted_session_ids: list[str] = []
+            deleted_records = 0
+            failures: list[str] = []
+            with st.spinner("Cancellazione in corso..."):
+                for session_id in selected_session_ids:
+                    try:
+                        result = delete_session_from_influx(
+                            url,
+                            org,
+                            bucket,
+                            token,
+                            measurement,
+                            session_id,
+                            lookback_days,
+                        )
+                        deleted_session_ids.append(session_id)
+                        deleted_records += int(result.get("record_count") or 0)
+                    except Exception as error:
+                        failures.append(f"{session_id}: {error}")
+
+            st.cache_data.clear()
+            st.session_state["manager_delete_feedback"] = {
+                "deleted_session_ids": deleted_session_ids,
+                "deleted_records": deleted_records,
+                "failures": failures,
+            }
+            st.rerun(scope="app")
+
+
 def merge_sessions_influx(
     url: str,
     org: str,
@@ -538,30 +606,57 @@ def build_fingerprint_comparison(
     return pd.DataFrame(rows).set_index("Metrica"), comparable_labels
 
 
-def style_fingerprint_comparison(
+def build_fingerprint_comparison_display(
     comparison: pd.DataFrame, comparable_labels: set[str]
-) -> pd.io.formats.style.Styler:
-    session_columns = [column for column in comparison.columns if column != "Unità"]
+) -> pd.DataFrame:
+    """Build a robust text-only comparison table for the Streamlit UI."""
 
-    def highlight_extrema(row: pd.Series) -> list[str]:
-        styles = ["" for _ in row.index]
-        if row.name not in comparable_labels:
-            return styles
-        numeric = pd.to_numeric(row[session_columns], errors="coerce").dropna()
-        if len(numeric) < 2 or float(numeric.min()) == float(numeric.max()):
-            return styles
-        for column, color in (
-            (numeric.idxmin(), "background-color: #4a351b; color: #fff4dc"),
-            (numeric.idxmax(), "background-color: #183f2b; color: #eafff3"),
+    display = comparison.reset_index().copy()
+    session_columns = [
+        column for column in display.columns if column not in {"Metrica", "Unità"}
+    ]
+    display[session_columns] = display[session_columns].astype(object)
+
+    def format_value(value: object, unit: str) -> str:
+        if value is None or pd.isna(value):
+            return "N.A."
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if not math.isfinite(numeric):
+            return "N.A."
+        if unit == "h":
+            return fmt_duration(numeric)
+        if unit == "1/h":
+            return f"{numeric:.3f}"
+        return f"{numeric:.2f}"
+
+    for row_index in display.index:
+        metric = str(display.at[row_index, "Metrica"])
+        unit = str(display.at[row_index, "Unità"])
+        numeric = pd.to_numeric(
+            display.loc[row_index, session_columns], errors="coerce"
+        ).dropna()
+        minimum_column = None
+        maximum_column = None
+        if (
+            metric in comparable_labels
+            and len(numeric) >= 2
+            and float(numeric.min()) != float(numeric.max())
         ):
-            styles[row.index.get_loc(column)] = color
-        return styles
+            minimum_column = numeric.idxmin()
+            maximum_column = numeric.idxmax()
 
-    numeric_format = {
-        column: (lambda value: "N.A." if pd.isna(value) else f"{float(value):.2f}")
-        for column in session_columns
-    }
-    return comparison.style.apply(highlight_extrema, axis=1).format(numeric_format)
+        for column in session_columns:
+            formatted = format_value(display.at[row_index, column], unit)
+            if column == minimum_column:
+                formatted = f"MIN · {formatted}"
+            elif column == maximum_column:
+                formatted = f"MAX · {formatted}"
+            display.at[row_index, column] = formatted
+
+    return display
 
 
 def build_reference_difference(
@@ -614,6 +709,9 @@ def render_multi_fingerprint_summary(
     fingerprints: list[FermentationFingerprint],
 ) -> None:
     comparison, comparable_labels = build_fingerprint_comparison(fingerprints)
+    display_comparison = build_fingerprint_comparison_display(
+        comparison, comparable_labels
+    )
     low_confidence_sessions = [
         fingerprint.metrics.session_id
         for fingerprint in fingerprints
@@ -626,12 +724,17 @@ def render_multi_fingerprint_summary(
             + ". Il JSON esportato include i motivi dettagliati."
         )
     st.caption(
-        "Verde = massimo, ambra = minimo. I colori distinguono gli estremi e "
-        "non indicano quale risultato sia migliore."
+        "MIN e MAX indicano gli estremi tra le sessioni, non quale risultato "
+        "sia migliore. N.A. indica un parametro non disponibile."
     )
     st.dataframe(
-        style_fingerprint_comparison(comparison, comparable_labels),
+        display_comparison,
         width="stretch",
+        hide_index=True,
+        column_config={
+            "Metrica": st.column_config.TextColumn(pinned=True),
+            "Unità": st.column_config.TextColumn(pinned=True),
+        },
     )
     render_fingerprint_exports(
         fingerprints,
@@ -900,6 +1003,23 @@ except Exception as error:
     st.error(f"Connessione a InfluxDB non riuscita: {error}")
     st.stop()
 
+delete_feedback = st.session_state.pop("manager_delete_feedback", None)
+if isinstance(delete_feedback, dict):
+    deleted_session_ids = delete_feedback.get("deleted_session_ids", [])
+    deleted_records = int(delete_feedback.get("deleted_records") or 0)
+    failures = delete_feedback.get("failures", [])
+    if deleted_session_ids:
+        deleted_count = len(deleted_session_ids)
+        deleted_word = "sessione" if deleted_count == 1 else "sessioni"
+        st.success(
+            f"Cancellazione completata: eliminate {deleted_count} {deleted_word} "
+            f"e {deleted_records} record."
+        )
+    if failures:
+        st.error("Alcune sessioni non sono state eliminate:")
+        for failure in failures:
+            st.write(f"• {failure}")
+
 if sessions.empty:
     st.warning("Nessuna sessione trovata nell'intervallo selezionato.")
     st.stop()
@@ -987,26 +1107,26 @@ if app_view == "Gestione sessioni":
         hide_index=True,
     )
 
-    managed_session_id = st.selectbox(
-        "Sessione da gestire",
-        filtered_catalog["session_id"].tolist(),
-        format_func=lambda value: session_labels.get(value, value),
-    )
-    admin_info = load_session_admin_info(
-        url,
-        org,
-        bucket,
-        token,
-        measurement,
-        managed_session_id,
-        int(lookback_days),
-    )
-
     info_tab, merge_tab, delete_tab = st.tabs(
-        ["Informazioni", "Unisci sessioni", "Elimina"]
+        ["Informazioni", "Unisci sessioni", "Elimina sessioni"]
     )
 
     with info_tab:
+        info_session_id = st.selectbox(
+            "Sessione da ispezionare",
+            filtered_catalog["session_id"].tolist(),
+            format_func=lambda value: session_labels.get(value, value),
+            key="manager_info_session",
+        )
+        admin_info = load_session_admin_info(
+            url,
+            org,
+            bucket,
+            token,
+            measurement,
+            info_session_id,
+            int(lookback_days),
+        )
         info_rows = build_admin_info_rows(admin_info)
         if info_rows:
             st.dataframe(
@@ -1028,6 +1148,12 @@ if app_view == "Gestione sessioni":
             st.write(", ".join(str(item) for item in fields))
 
     with merge_tab:
+        managed_session_id = st.selectbox(
+            "Sessione sorgente",
+            filtered_catalog["session_id"].tolist(),
+            format_func=lambda value: session_labels.get(value, value),
+            key="manager_merge_source",
+        )
         merge_targets = [value for value in sessions["session_id"].tolist() if value != managed_session_id]
         if not merge_targets:
             st.info("Serve almeno un'altra sessione per eseguire un merge.")
@@ -1100,40 +1226,83 @@ if app_view == "Gestione sessioni":
                     st.rerun()
 
     with delete_tab:
-        delete_phrase = f"DELETE {managed_session_id}"
-        delete_confirmation = st.text_input(
-            "Conferma delete",
-            value="",
-            help=f"Scrivi esattamente: {delete_phrase}",
-            key=f"manager_delete_confirmation_{managed_session_id}",
+        st.caption(
+            "Seleziona una o più sessioni. Prima della cancellazione vedrai il "
+            "totale di durata e record e potrai confermare o annullare."
         )
-        st.warning(
-            "Questa operazione elimina definitivamente tutti i record con questo session_id dal bucket InfluxDB."
+        header_select, header_name, header_duration, header_records = st.columns(
+            [0.5, 4.5, 1.4, 1.2],
+            vertical_alignment="center",
         )
-        if st.button(
-            "Elimina definitivamente",
-            key=f"manager_delete_button_{managed_session_id}",
-            type="primary",
-        ):
-            if delete_confirmation.strip() != delete_phrase:
-                st.error("Conferma non valida. Copia la frase completa prima di procedere.")
-            else:
-                with st.spinner("Eliminazione sessione in corso..."):
-                    deleted_summary = delete_session_from_influx(
+        header_select.caption("Scegli")
+        header_name.caption("Sessione")
+        header_duration.caption("Durata")
+        header_records.caption("Record")
+
+        selected_session_ids: list[str] = []
+        with st.container(border=True, gap=None):
+            for row in filtered_catalog.itertuples(index=False):
+                session_id_value = str(row.session_id)
+                select_col, name_col, duration_col, records_col = st.columns(
+                    [0.5, 4.5, 1.4, 1.2],
+                    vertical_alignment="center",
+                )
+                selected = select_col.checkbox(
+                    f"Seleziona {session_id_value}",
+                    key=f"manager_delete_select_{session_id_value}",
+                    label_visibility="collapsed",
+                )
+                name_col.write(session_id_value)
+                duration_col.write(f"{float(row.duration_hours) * 60.0:.0f} min")
+                records_col.write(f"{int(row.record_count):,}".replace(",", "."))
+                if selected:
+                    selected_session_ids.append(session_id_value)
+
+        if selected_session_ids:
+            selected_catalog = filtered_catalog[
+                filtered_catalog["session_id"].isin(selected_session_ids)
+            ]
+            total_minutes = int(
+                round(float(selected_catalog["duration_hours"].sum()) * 60.0)
+            )
+            total_records = int(selected_catalog["record_count"].sum())
+            session_count = len(selected_session_ids)
+            session_word = "sessione" if session_count == 1 else "sessioni"
+            st.info(
+                f"Hai selezionato **{session_count} {session_word}**: "
+                f"**{total_minutes} minuti** totali e **{total_records} record**."
+            )
+            if st.button(
+                "Elimina selezionate",
+                icon=":material/delete:",
+                key="open_batch_session_delete",
+                type="primary",
+                width="stretch",
+            ):
+                allowed_session_ids = set(
+                    filtered_catalog["session_id"].astype(str).tolist()
+                )
+                validated_session_ids = tuple(
+                    session_id
+                    for session_id in selected_session_ids
+                    if session_id in allowed_session_ids
+                )
+                if len(validated_session_ids) != len(selected_session_ids):
+                    st.error("La selezione contiene sessioni non valide. Aggiorna la pagina.")
+                else:
+                    confirm_batch_session_delete(
                         url,
                         org,
                         bucket,
                         token,
                         measurement,
-                        managed_session_id,
                         int(lookback_days),
+                        validated_session_ids,
+                        total_minutes,
+                        total_records,
                     )
-                st.cache_data.clear()
-                st.success(
-                    "Sessione eliminata: "
-                    f"rimossi {deleted_summary['record_count']} record da InfluxDB."
-                )
-                st.rerun()
+        else:
+            st.info("Seleziona almeno una sessione da eliminare.")
 
     st.stop()
 
@@ -1158,6 +1327,18 @@ if analysis_mode == "Single Session":
         sessions["session_id"].tolist(),
         format_func=lambda value: session_labels[value],
     )
+    single_results_view = st.segmented_control(
+        "Vista risultati · passa da testo a grafici",
+        ["TESTO", "GRAFICI"],
+        default="TESTO",
+        required=True,
+        format_func=lambda value: {
+            "TESTO": ":material/table_rows: TESTO",
+            "GRAFICI": ":material/show_chart: GRAFICI",
+        }[value],
+        key="single_results_view",
+        width="stretch",
+    )
 else:
     if "compare_offsets" not in st.session_state:
         st.session_state.compare_offsets = {}
@@ -1173,9 +1354,15 @@ else:
         st.info("Seleziona almeno due sessioni per la modalità Compare Sessions.")
         st.stop()
     compare_results_view = st.segmented_control(
-        "Vista risultati",
-        ["Tabella parametri", "Grafici di confronto"],
-        default="Tabella parametri",
+        "Vista risultati · passa da testo a grafici",
+        ["TESTO", "GRAFICI"],
+        default="TESTO",
+        required=True,
+        format_func=lambda value: {
+            "TESTO": ":material/table_rows: TESTO",
+            "GRAFICI": ":material/show_chart: GRAFICI",
+        }[value],
+        key="compare_results_view",
         width="stretch",
     )
 
@@ -1341,7 +1528,7 @@ else:
     offset_hours: dict[str, float] = {}
     compare_metadata: dict[str, dict[str, object]] = {}
 
-    if compare_results_view == "Grafici di confronto":
+    if compare_results_view == "GRAFICI":
         with st.expander("Offset temporali", expanded=True):
             for session_name in selected_session_ids:
                 current_offset = float(
@@ -1451,7 +1638,7 @@ else:
         st.error("Nessuna sessione comparabile è stata caricata.")
         st.stop()
 
-    if compare_results_view == "Tabella parametri":
+    if compare_results_view == "TESTO":
         render_section_title(
             "Confronto dei parametri",
             "Le metriche sono calcolate sulla timeline originale di ogni sessione. "
@@ -1907,185 +2094,178 @@ if analysis_mode == "Single Session":
     )
     style_figure(derived_figure, height=760)
 
-    (
-        parameters_tab,
-        chart_tab,
-        derived_tab,
-        dynamics_tab,
-        details_tab,
-        data_tab,
-    ) = st.tabs(
-        [
-            "Parametri",
-            "Grafici singoli",
-            "Curve derivate",
-            "Temperatura e dinamica",
-            "Ricetta e dettagli",
-            "Dati",
-        ]
-    )
-
-    with parameters_tab:
-        st.subheader("Parametri della lievitazione")
-        st.caption(
-            "Fingerprint quantitativo calcolato sulla timeline originale della sessione."
+    if single_results_view == "TESTO":
+        parameters_tab, details_tab, data_tab = st.tabs(
+            ["Parametri", "Ricetta e dettagli", "Dati"]
         )
-        render_fingerprint_summary(fingerprint)
 
-    with chart_tab:
-        single_view = st.segmented_control(
-            "Tipo di grafico",
-            ["Serie temporali", "Correlazione 2 variabili"],
-            default="Serie temporali",
-            format_func=lambda value: {
-                "Serie temporali": "Andamento nel tempo",
-                "Correlazione 2 variabili": "Correlazione",
-            }[value],
-            key="single_graph_view",
-        )
-        if single_view == "Serie temporali":
-            selected_fingerprint_events = st.multiselect(
-                "Eventi caratteristici sul grafico",
-                list(FINGERPRINT_EVENT_LABELS),
-                default=["t25", "t50", "t100", "max_rate", "plateau"],
-                format_func=lambda value: FINGERPRINT_EVENT_LABELS[value],
-                help="Le metriche usano sempre la timeline originale della sessione.",
-                key="single_graph_events",
+        with parameters_tab:
+            st.subheader("Parametri della lievitazione")
+            st.caption(
+                "Fingerprint quantitativo calcolato sulla timeline originale della sessione."
             )
-            event_figure = go.Figure(volume_figure)
-            for event_name in selected_fingerprint_events:
-                event_time_h = fingerprint.events_h.get(event_name)
-                if event_time_h is None:
-                    continue
-                event_timestamp = (
-                    analysis.index[0] + pd.to_timedelta(event_time_h, unit="h")
-                ).to_pydatetime(warn=False)
-                event_color = (
-                    "#F1B95E" if event_name == "collapse" else "#A9BBB1"
-                )
-                event_figure.add_vline(
-                    x=event_timestamp,
-                    line_width=1,
-                    line_dash="dot",
-                    line_color=event_color,
-                )
-                event_figure.add_annotation(
-                    x=event_timestamp,
-                    y=1.0,
-                    xref="x",
-                    yref="paper",
-                    text=FINGERPRINT_EVENT_LABELS[event_name],
-                    textangle=-90,
-                    showarrow=False,
-                    yanchor="bottom",
-                    font={"size": 11, "color": event_color},
-                )
-            st.plotly_chart(
-                event_figure,
+            render_fingerprint_summary(fingerprint)
+
+        with details_tab:
+            if session_metadata:
+                render_metadata(session_metadata)
+            else:
+                st.info("Nessun metadato disponibile per questa sessione.")
+
+        with data_tab:
+            st.caption("Dati elaborati con i parametri attualmente selezionati.")
+            st.dataframe(analysis.reset_index(), width="stretch", hide_index=True)
+    else:
+        chart_tab, derived_tab, dynamics_tab = st.tabs(
+            ["Grafico principale", "Curve derivate", "Temperatura e dinamica"]
+        )
+
+        with chart_tab:
+            single_view = st.segmented_control(
+                "Tipo di grafico",
+                ["Serie temporali", "Correlazione 2 variabili"],
+                default="Serie temporali",
+                required=True,
+                format_func=lambda value: {
+                    "Serie temporali": "Andamento nel tempo",
+                    "Correlazione 2 variabili": "Correlazione",
+                }[value],
+                key="single_graph_view",
                 width="stretch",
-                config={"displaylogo": False},
             )
-            if temperature_overview_figure.data:
+            if single_view == "Serie temporali":
+                selected_fingerprint_events = st.multiselect(
+                    "Eventi caratteristici sul grafico",
+                    list(FINGERPRINT_EVENT_LABELS),
+                    default=["t25", "t50", "t100", "max_rate", "plateau"],
+                    format_func=lambda value: FINGERPRINT_EVENT_LABELS[value],
+                    help="Le metriche usano sempre la timeline originale della sessione.",
+                    key="single_graph_events",
+                )
+                event_figure = go.Figure(volume_figure)
+                for event_name in selected_fingerprint_events:
+                    event_time_h = fingerprint.events_h.get(event_name)
+                    if event_time_h is None:
+                        continue
+                    event_timestamp = (
+                        analysis.index[0] + pd.to_timedelta(event_time_h, unit="h")
+                    ).to_pydatetime(warn=False)
+                    event_color = (
+                        "#F1B95E" if event_name == "collapse" else "#A9BBB1"
+                    )
+                    event_figure.add_vline(
+                        x=event_timestamp,
+                        line_width=1,
+                        line_dash="dot",
+                        line_color=event_color,
+                    )
+                    event_figure.add_annotation(
+                        x=event_timestamp,
+                        y=1.0,
+                        xref="x",
+                        yref="paper",
+                        text=FINGERPRINT_EVENT_LABELS[event_name],
+                        textangle=-90,
+                        showarrow=False,
+                        yanchor="bottom",
+                        font={"size": 11, "color": event_color},
+                    )
                 st.plotly_chart(
-                    temperature_overview_figure,
+                    event_figure,
+                    width="stretch",
+                    config={"displaylogo": False},
+                )
+                if temperature_overview_figure.data:
+                    st.plotly_chart(
+                        temperature_overview_figure,
+                        width="stretch",
+                        config={"displaylogo": False},
+                    )
+                else:
+                    st.caption("Questa sessione non contiene dati di temperatura.")
+            else:
+                metric_options = get_compare_metric_options([analysis])
+                if len(metric_options) < 2:
+                    st.info(
+                        "I dati disponibili non permettono una correlazione tra due variabili."
+                    )
+                else:
+                    metric_names = [name for name, _label in metric_options]
+                    x_metric = st.selectbox(
+                        "Variabile X",
+                        metric_names,
+                        format_func=lambda value: next(
+                            label for name, label in metric_options if name == value
+                        ),
+                        index=0,
+                        key="single_correlation_x",
+                    )
+                    y_metric = st.selectbox(
+                        "Variabile Y",
+                        metric_names,
+                        format_func=lambda value: next(
+                            label for name, label in metric_options if name == value
+                        ),
+                        index=1,
+                        key="single_correlation_y",
+                    )
+                    if x_metric == y_metric:
+                        st.info(
+                            "Scegli due variabili diverse per visualizzare la correlazione."
+                        )
+                    else:
+                        correlation_figure = go.Figure()
+                        x_values = analysis[x_metric]
+                        y_values = analysis[y_metric]
+                        valid = x_values.notna() & y_values.notna()
+                        correlation_figure.add_trace(
+                            go.Scatter(
+                                x=x_values[valid],
+                                y=y_values[valid],
+                                mode="lines+markers",
+                                name=session_id,
+                                line={"color": "#69D7A0", "width": 2},
+                                marker={"size": 5, "color": "#F1B95E"},
+                                hovertemplate=(
+                                    f"{session_id}<br>{x_metric} = %{{x:.3f}}"
+                                    f"<br>{y_metric} = %{{y:.3f}}<extra></extra>"
+                                ),
+                            )
+                        )
+                        correlation_figure.update_layout(
+                            title="Correlazione tra due variabili",
+                            xaxis_title=next(
+                                label
+                                for name, label in metric_options
+                                if name == x_metric
+                            ),
+                            yaxis_title=next(
+                                label
+                                for name, label in metric_options
+                                if name == y_metric
+                            ),
+                            hovermode="closest",
+                        )
+                        style_figure(correlation_figure)
+                        st.plotly_chart(
+                            correlation_figure,
+                            width="stretch",
+                            config={"displaylogo": False},
+                        )
+
+        with derived_tab:
+            if derived_figure.data:
+                st.plotly_chart(
+                    derived_figure,
                     width="stretch",
                     config={"displaylogo": False},
                 )
             else:
-                st.caption("Questa sessione non contiene dati di temperatura.")
-        else:
-            metric_options = get_compare_metric_options([analysis])
-            if len(metric_options) < 2:
-                st.info(
-                    "I dati disponibili non permettono una correlazione tra due variabili."
-                )
-            else:
-                metric_names = [name for name, _label in metric_options]
-                x_metric = st.selectbox(
-                    "Variabile X",
-                    metric_names,
-                    format_func=lambda value: next(
-                        label for name, label in metric_options if name == value
-                    ),
-                    index=0,
-                    key="single_correlation_x",
-                )
-                y_metric = st.selectbox(
-                    "Variabile Y",
-                    metric_names,
-                    format_func=lambda value: next(
-                        label for name, label in metric_options if name == value
-                    ),
-                    index=1,
-                    key="single_correlation_y",
-                )
-                if x_metric == y_metric:
-                    st.info(
-                        "Scegli due variabili diverse per visualizzare la correlazione."
-                    )
-                else:
-                    correlation_figure = go.Figure()
-                    x_values = analysis[x_metric]
-                    y_values = analysis[y_metric]
-                    valid = x_values.notna() & y_values.notna()
-                    correlation_figure.add_trace(
-                        go.Scatter(
-                            x=x_values[valid],
-                            y=y_values[valid],
-                            mode="lines+markers",
-                            name=session_id,
-                            line={"color": "#69D7A0", "width": 2},
-                            marker={"size": 5, "color": "#F1B95E"},
-                            hovertemplate=(
-                                f"{session_id}<br>{x_metric} = %{{x:.3f}}"
-                                f"<br>{y_metric} = %{{y:.3f}}<extra></extra>"
-                            ),
-                        )
-                    )
-                    correlation_figure.update_layout(
-                        title="Correlazione tra due variabili",
-                        xaxis_title=next(
-                            label
-                            for name, label in metric_options
-                            if name == x_metric
-                        ),
-                        yaxis_title=next(
-                            label
-                            for name, label in metric_options
-                            if name == y_metric
-                        ),
-                        hovermode="closest",
-                    )
-                    style_figure(correlation_figure)
-                    st.plotly_chart(
-                        correlation_figure,
-                        width="stretch",
-                        config={"displaylogo": False},
-                    )
+                st.info("Dati insufficienti per calcolare le curve derivate.")
 
-    with derived_tab:
-        if derived_figure.data:
+        with dynamics_tab:
             st.plotly_chart(
-                derived_figure,
+                temperature_figure,
                 width="stretch",
                 config={"displaylogo": False},
             )
-        else:
-            st.info("Dati insufficienti per calcolare le curve derivate.")
-
-    with dynamics_tab:
-        st.plotly_chart(
-            temperature_figure,
-            width="stretch",
-            config={"displaylogo": False},
-        )
-
-    with details_tab:
-        if session_metadata:
-            render_metadata(session_metadata)
-        else:
-            st.info("Nessun metadato disponibile per questa sessione.")
-
-    with data_tab:
-        st.caption("Dati elaborati con i parametri attualmente selezionati.")
-        st.dataframe(analysis.reset_index(), width="stretch", hide_index=True)
