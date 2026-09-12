@@ -53,11 +53,12 @@ Ogni riga ha:
 | `device_id`, `session_id` | string | ID stabili, non vuoti. |
 | `timestamp_utc_ms` | integer o null | Millisecondi Unix UTC. `null` se l'ora non è affidabile. Mai stimare UTC al momento dell'import. |
 | `time_quality` | string enum | `rtc_valid`, `ntp_synced`, `uncertain`, `invalid`. Solo i primi due sono esportabili a Influx senza riparazione esplicita. |
-| `elapsed_ms` | integer ≥ 0 | Durata dalla partenza sessione, ricostruita dopo sleep/reset; non deriva solo da `millis()`. |
+| `elapsed_ms` | integer, 0…9_223_372_036_854_775_807 | Durata dalla partenza sessione, ricostruita dopo sleep/reset; non deriva solo da `millis()`. |
 
 Un `sample` contiene inoltre `vessel_id`, `sequence` e
-`vessel_sequence`, tutti interi senza segno. `sequence` è il numero di ciclo
-comune ai tre vasi (e conserva la semantica del campo V1); ogni ciclo produce
+`vessel_sequence`, tutti interi JSON non negativi nel range 0…9_223_372_036_854_775_807
+(`uint64` lato archivio e `int64` firmato lato Influx). V1 era limitato a
+`uint32`; V2 estende esplicitamente il range. `sequence` è il numero di ciclo comune ai tre vasi (e conserva la semantica del campo V1); ogni ciclo produce
 al massimo una riga per vaso. `vessel_sequence` cresce solo per quel vaso.
 La coppia `(session_id, vessel_id, sequence)` è unica. Il `event_id` è
 l'identità dell'evento archivio; per un campione è
@@ -90,10 +91,14 @@ Ogni campione ha `sensors`, oggetto con le chiavi `dough`, `ambient` e
 {"state":"ok|missing|error|stale","error_code":null,"detail":null}
 ```
 
-`state=ok` richiede i relativi valori presenti; `missing` indica hardware non
-disponibile; `error` una lettura/CRC/timeout fallita; `stale` è consentito
-solo quando viene esplicitamente riusata una misura marcata con la sua età (non
-nelle fixture). `error_code` è un codice ASCII stabile, ad esempio
+`state=ok` richiede che tutti i campi di misura associati siano presenti,
+non null e numeri finiti: `dough` → `temperature_dough_c`; `ambient` →
+`temperature_ambient_c` e `humidity_pct`; `tof` → `distance_mm`,
+`distance_calibrated_mm`, `dough_height_mm`, `dough_growth_mm` (e `volume_ml`
+solo se la geometria è configurata). Per `missing` e `error` i campi associati
+sono null; `stale` richiede gli stessi valori finiti di `ok` e un intero
+non negativo `age_ms`. `missing` indica hardware non disponibile; `error` una
+lettura/CRC/timeout fallita. `error_code` è un codice ASCII stabile, ad esempio
 `DS18B20_TIMEOUT`, `SHT31_CRC`, `TOF_TIMEOUT`; `detail` è opzionale,
 diagnostico e non usato come identità.
 
@@ -106,7 +111,8 @@ un campione sia stato salvato.
 ## Tempo, ordine e riparazione
 
 `elapsed_ms` e i contatori stabiliscono l'ordine anche quando l'RTC è
-invalidato. Non modificare `timestamp_utc_ms` dei record già salvati dopo una
+invalidato. Il DS3231 memorizza e restituisce UTC; fuso CET/CEST e altre
+conversioni sono esclusivamente di presentazione e non modificano l'archivio. Non modificare `timestamp_utc_ms` dei record già salvati dopo una
 sincronizzazione NTP. I record con `uncertain` o `invalid` restano su SD e
 non vengono inviati a Influx. Un importer può esportarli solo dopo una
 riparazione esplicita e tracciata che produca una nuova proiezione con
@@ -139,9 +145,11 @@ Gli eventi validi usano le measurement `session_start`, `session_end` e
 ingredienti e calibrazioni restano in `session.json`; non vengono serializzati
 come tag ad alta cardinalità.
 
-L'identità del punto Influx è
-`(measurement, device_id, session_id, vessel_id, timestamp_ns)`. Per i
-campioni, `sequence` e il timestamp derivano dall'evento immutabile; un retry
+L'identità del punto Influx è `(measurement, timestamp_ns, tag-set completo)`:
+per un campione `(fermentation_measurement, timestamp_ns, device_id,
+session_id, vessel_id, schema_version)`. Per gli eventi il tag-set completo è
+quello dichiarato per la measurement, omettendo solo `vessel_id` quando non
+applicabile. Per i campioni, `sequence` e il timestamp derivano dall'evento immutabile; un retry
 scrive la stessa identità e non crea una nuova misura. Una collisione di due
 eventi diversi su questa identità è un errore di contratto: l'importer deve
 fermare il batch invece di sovrascrivere silenziosamente.
@@ -151,17 +159,22 @@ fermare il batch invece di sovrascrivere silenziosamente.
 Ogni `<destination_id>.cursor.json` ha schema
 `fermentlab.upload-cursor.v2`, `session_id`, `destination_id`,
 `confirmed_event_id`, `confirmed_line_number`, `updated_at_utc_ms` e
-`status` (`pending|complete|error`). Il cursore avanza solo dopo risposta
-Influx 2xx per il batch contenente quella riga; dopo reset è lecito reinviare
-dal precedente cursore. Una destinazione è fissata in `session.json` allo
+`status` (`pending|complete|error`). Il cursore rappresenta esclusivamente il
+prefisso contiguo massimo di righe complete confermate: non può saltare una
+riga precedente né avanzare oltre un errore. Avanza solo dopo risposta Influx
+2xx per il batch contenente quella riga e viene sostituito atomicamente
+(write-temp + fsync + rename o equivalente); dopo reset è lecito reinviare dal
+precedente cursore. Una destinazione è fissata in `session.json` allo
 start. Repliche deliberate usano un `destination_id` e cursore separati:
 nessun fallback implicito NAS/PC.
 
 ## Regole di validazione
 
 Il parser deve rifiutare JSON non valido, ID mancanti, `sequence` duplicata
-per vaso, campi numerici non finiti e un sample senza `sensors`. Deve
-accettare una sessione offline, errori di singoli sensori e timestamp nulli.
+per vaso, contatori fuori dal range V2, campi numerici non finiti e un sample
+senza `sensors`. Per ciascun sensore deve applicare le regole `ok`/`missing`/
+`error`/`stale` sopra descritte. Deve accettare una sessione offline, errori di
+singoli sensori e timestamp nulli.
 La compatibilità V1 rimane in lettura: record senza `schema_version` né
 `vessel_id` sono interpretati come V1, vaso logico `legacy`, senza
 riscrivere l'archivio.
