@@ -39,7 +39,8 @@ void addSensor(JsonObject sensors, const char* name, const ScalarReading& readin
 }  // namespace
 
 void JsonlEmitter::emitSample(const VesselSample& sample, Print& output) const {
-  JsonDocument document;
+  JsonDocument json;
+  JsonObject document = json.to<JsonObject>();
   document["schema_version"] = "fermentlab.v2";
   document["event_type"] = "sample";
   document["event_id"] =
@@ -67,6 +68,6 @@ void JsonlEmitter::emitSample(const VesselSample& sample, Print& output) const {
   addSensor(sensors, "ambient", sample.ambientTemperatureC);
   addSensor(sensors, "tof", sample.distanceMm);
 
-  serializeJson(document, output);
+  serializeJson(json, output);
   output.println();
 }
