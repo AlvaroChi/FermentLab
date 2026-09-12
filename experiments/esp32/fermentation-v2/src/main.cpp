@@ -7,7 +7,7 @@ namespace {
 
 constexpr char DEVICE_ID[] = "esp32s3-v2-sim-01";
 constexpr char SESSION_ID[] = "v2-sim-session-001";
-constexpr char* VESSEL_IDS[] = {"vessel-1", "vessel-2", "vessel-3"};
+constexpr const char* VESSEL_IDS[] = {"vessel-1", "vessel-2", "vessel-3"};
 constexpr uint64_t SAMPLE_INTERVAL_MS = 60000;
 constexpr uint32_t SIMULATOR_CYCLE_DELAY_MS = 2000;
 
