@@ -41,8 +41,8 @@ Il codice è organizzato in modo semplice, con una separazione chiara tra:
 3. L'utente sceglie una sessione.
 4. Il tool recupera i punti di misura della sessione e i metadati di start.
 5. L'analisi calcola una baseline, il segnale filtrato e le curve operative.
-6. La UI presenta prima i parametri in forma tabellare; lo switch evidente
-   **TESTO | GRAFICI** apre i grafici come approfondimento dedicato.
+6. La UI usa quattro sezioni piatte: **Sintesi**, **Fasi**, **Grafici** e
+   **Dettagli**, senza tab annidati.
 
 ## Configurazione
 
@@ -96,9 +96,8 @@ Note utili:
 ## Confronto tra sessioni
 
 Nella UI è disponibile anche una modalità "Compare Sessions" per confrontare
-più sessioni FermentLab. La vista iniziale è una tabella testuale dei parametri
-quantitativi; lo switch **TESTO | GRAFICI** apre i grafici comparativi e i
-relativi controlli di allineamento.
+più sessioni FermentLab. Le tre sezioni dirette sono **Tabella**, **Curve** e
+**Correlazione**. I controlli di allineamento compaiono soltanto in Curve.
 
 Funziona così:
 
@@ -111,6 +110,49 @@ Funziona così:
   l'uscita dal frigo tra sessioni diverse;
 - i dati InfluxDB non vengono modificati: l'offset è solo una trasformazione
   di analisi e visualizzazione.
+
+## Analisi per fase
+
+La sezione **Fasi** della sessione singola permette di descrivere il protocollo
+come:
+
+- sempre a temperatura ambiente;
+- frigo seguito da temperatura ambiente, indicando sia l'uscita dal frigo sia
+  il momento in cui il freddo diventa stabile sia quello in cui l'impasto è
+  termicamente stabilizzato.
+
+Il protocollo refrigerato può essere diviso in **Raffreddamento**, **Freddo
+stabile**, **Assestamento termico** e **Ambiente stabilizzato**. Il Freddo
+termina appena la temperatura ambiente abbandona il plateau freddo;
+l'Assestamento termina soltanto quando le `dT/dt` di ambiente e impasto sono
+entrambe basse e nuovamente vicine. La distanza assoluta fra le temperature
+non viene usata, così un offset costante di taratura non sposta i confini. Se
+questo secondo confine non è ancora osservato, l'Assestamento resta
+esplicitamente in corso.
+
+Ogni fase ha una baseline e un orologio locali. Di conseguenza `t25`, `t50` e
+il raddoppio descrivono la dinamica interna alla fase, non il tempo trascorso
+dall'avvio dell'intera sessione. Una soglia non raggiunta viene mostrata come
+osservazione censurata (`> durata osservata`); il raddoppio stimato dalla
+velocità specifica media rimane distinto da quello realmente osservato.
+
+Un rilevatore termico propone i confini quando trova un passaggio freddo →
+caldo netto e persistente nell'ambiente, seguito dalla risposta termica
+dell'impasto. La proposta viene mostrata con confidenza e note, ma non viene
+mai salvata automaticamente; una curva ambigua resta **Non classificata**. Il
+grafico diagnostico affianca alla tabella le temperature smussate, le rispettive
+pendenze `dT/dt` e lo scarto `|dT/dt impasto - dT/dt ambiente|`. Linee e bande
+reagiscono agli orari inseriti e aiutano a verificare o correggere i confini
+prima del salvataggio, senza modificare i dati misurati.
+
+La configurazione è non distruttiva: non scrive, corregge o elimina punti in
+InfluxDB. Viene salvata come sidecar JSON locale, indicizzato dall'hash del
+`session_id`, con scrittura atomica e backup della versione precedente. La
+directory predefinita è `~/.fermentlab/session_phases`; per cambiarla impostare
+`FERMENTLAB_SIDECAR_DIR`. Il confronto testuale consente poi di scegliere la
+sessione completa oppure una fase omologa tra le sessioni configurate. I
+sidecar precedenti con il solo orario di uscita restano leggibili e vengono
+aggiornati al nuovo schema soltanto dopo un salvataggio esplicito.
 
 ## Test
 
@@ -126,10 +168,11 @@ l'altezza e lo segnala chiaramente.
 
 ## Fermentation fingerprint
 
-La prima scheda **Parametri** trasforma ogni sessione in un
+La sezione **Sintesi** trasforma ogni sessione in un
 `FermentationMetrics` numerico e ne presenta i risultati per gruppo, parametro,
-valore, qualità e nota. Le schede successive raccolgono i grafici della singola
-sessione, le curve derivate e l'analisi temperatura-dinamica. La pipeline è:
+valore, qualità e nota. In **Grafici**, la curva principale è immediata mentre
+correlazione, curve derivate e temperatura-dinamica sono approfondimenti
+espandibili. La pipeline è:
 
 1. validazione e scelta automatica `volume_ml` → `dough_height_mm`;
 2. despike e smoothing già eseguiti da `analyze_session`, senza modificare i raw;
