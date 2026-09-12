@@ -10,7 +10,7 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 
 - Fuori frigo: **powerbank REPRC modello MYC095 (celle 10.000 mAh, 3,7 V / 37 Wh; capacità nominale in uscita 6.000 mAh; USB 5 V)**, **ESP32-S3-Zero con ESP32-S3FH4R2 (USB-C, 4 MB flash e 2 MB PSRAM integrati)**, **modulo microSD SPI diretto a 3,3 V (circa 18 × 20 mm; pin 3V3, CS, MOSI, CLK, MISO, GND)** e **un solo RTC DS3231 con EEPROM AT24C32** e batteria tampone. Disponibili 3 moduli RTC; 2 restano di scorta.
 - Un cavo a 6 conduttori raggiunge la scatola di derivazione nel frigo.
-- Un solo TCA9548A nella scatola, con un canale I2C dedicato a ogni vaso.
+- Un solo **TCA9548A BAOKAI** nella scatola, alimentato a 3,3 V, con un canale I2C dedicato a ogni vaso. Disponibili 5 moduli; 4 restano di scorta. Ingresso: VIN, GND, SDA, SCL; `RST` e `A0–A2` da definire nello schema. Uscite: coppie `SDn/SCn` dei canali 0–7.
 - Tre cavi a 6 conduttori dalla scatola ai rispettivi vasi.
 - Ogni vaso: **1× ToF VL53L4CD** (3 moduli disponibili, scheda esatta da verificare all'arrivo), **SHT31-DIS/SHT3X temperatura-umidità, modulo viola APKLVSR dichiarato 2,4–5,5 V** (alimentazione prevista a 3,3 V; pin serigrafati VIN, GND, SCL, SDA, AL, AD; AL e AD non necessari), e **sonda AZDelivery DS18B20 impermeabile in acciaio con cavo da 2 m**.
 - Conduttori: alimentazione sensori, GND, SDA, SCL, DATA OneWire e riserva. Tensioni e pin da validare sui moduli effettivi.
@@ -36,6 +36,7 @@ Completata quando: stato attuale, componenti, pin e vincoli sono documentati; co
 ## M2 — Acquisizione dei tre vasi
 
 - [ ] Gestire TCA9548A e ToF/SHT31D su tre canali distinti.
+- [ ] Assegnare tre canali fisici del TCA ai vasi e documentare per ciascuno `SDA = SDn` e `SCL = SCn`; indirizzo del TCA previsto `0x70` con A0–A2 bassi, da verificare sulla scheda reale.
 - [ ] Associare stabilmente gli indirizzi DS18B20 ai vasi 1–3.
 - [ ] Conservare calibrazione e distanza iniziale separate per vaso.
 - [ ] Salvare distanza ToF originale e altezza calcolata, temperatura impasto, temperatura e umidità ambiente.
