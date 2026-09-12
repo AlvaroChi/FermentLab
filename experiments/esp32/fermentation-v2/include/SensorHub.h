@@ -5,6 +5,11 @@
 enum class SensorState : uint8_t { Ok, Missing, Error, Stale };
 
 struct SensorStatus {
+  SensorStatus() = default;
+  SensorStatus(SensorState stateValue, const char* errorCodeValue,
+               uint64_t ageMsValue)
+      : state(stateValue), errorCode(errorCodeValue), ageMs(ageMsValue) {}
+
   SensorState state = SensorState::Missing;
   const char* errorCode = nullptr;
   uint64_t ageMs = 0;
