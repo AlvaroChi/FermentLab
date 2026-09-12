@@ -12,7 +12,7 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 - Un cavo a 6 conduttori raggiunge la scatola di derivazione nel frigo.
 - Un solo TCA9548A nella scatola, con un canale I2C dedicato a ogni vaso.
 - Tre cavi a 6 conduttori dalla scatola ai rispettivi vasi.
-- Ogni vaso: **1× ToF VL53L4CD** (3 moduli disponibili, scheda esatta da verificare all'arrivo), **SHT31-DIS temperatura/umidità, modulo APKLVSR dichiarato 2,4–5 V** (alimentazione prevista a 3,3 V), e **sonda AZDelivery DS18B20 impermeabile in acciaio con cavo da 2 m**.
+- Ogni vaso: **1× ToF VL53L4CD** (3 moduli disponibili, scheda esatta da verificare all'arrivo), **SHT31-DIS/SHT3X temperatura-umidità, modulo viola APKLVSR dichiarato 2,4–5,5 V** (alimentazione prevista a 3,3 V; pin serigrafati VIN, GND, SCL, SDA, AL, AD; AL e AD non necessari), e **sonda AZDelivery DS18B20 impermeabile in acciaio con cavo da 2 m**.
 - Conduttori: alimentazione sensori, GND, SDA, SCL, DATA OneWire e riserva. Tensioni e pin da validare sui moduli effettivi.
 - Alimentazione e GND distribuiti ai tre vasi; DATA bypassa il TCA e collega le tre sonde sullo stesso bus, distinguendole per indirizzo.
 
@@ -20,7 +20,8 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 
 - [ ] Leggere codice e documentazione di `experiments/esp32/fermentation-session-logger/`, monitor altezza e Analyzer.
 - [ ] Identificare dove il firmware attuale salva le letture: EEPROM emulata, NVS o filesystem flash. Non dedurlo dal README.
-- [ ] Confermare pinout fisico del modulo SHT31-DIS, colori/funzioni dei tre fili delle sonde DS18B20 e lunghezze dei cavi di collegamento; definire pin e alimentazione.
+- [ ] Confermare colori/funzioni dei tre fili delle sonde DS18B20 e lunghezze dei cavi di collegamento; definire pin e alimentazione.
+- [x] Pinout SHT31-DIS/SHT3X confermato dalla serigrafia: collegare VIN, GND, SCL e SDA; lasciare AL e AD scollegati. Ignorare le frecce errate nell'immagine commerciale.
 - [ ] Alimentare le DS18B20 in modalità normale a tre fili e 3,3 V; prevedere una sola resistenza pull-up da 4,7 kΩ tra DATA e 3,3 V per l'intero bus OneWire, da validare con le lunghezze reali.
 - [ ] Provare se il powerbank REPRC MYC095 mantiene attiva l'uscita USB durante il deep sleep: l'etichetta non dichiara una modalità a basso assorbimento o uscita permanente.
 - [ ] Verificare il pinout effettivo della scheda ESP32-S3-Zero e riservare i GPIO necessari per SPI, I2C, OneWire, pulsante, LED e risveglio da deep sleep.
