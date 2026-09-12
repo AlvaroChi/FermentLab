@@ -111,7 +111,8 @@ un campione sia stato salvato.
 ## Tempo, ordine e riparazione
 
 `elapsed_ms` e i contatori stabiliscono l'ordine anche quando l'RTC è
-invalidato. Il DS3231 memorizza e restituisce UTC; fuso CET/CEST e altre
+invalidato. Il DS3231 non ha un concetto intrinseco di fuso orario: il firmware ne
+configura e interpreta il calendario come UTC. Fuso CET/CEST e altre
 conversioni sono esclusivamente di presentazione e non modificano l'archivio. Non modificare `timestamp_utc_ms` dei record già salvati dopo una
 sincronizzazione NTP. I record con `uncertain` o `invalid` restano su SD e
 non vengono inviati a Influx. Un importer può esportarli solo dopo una
