@@ -12,7 +12,7 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 - Un cavo a 6 conduttori raggiunge la scatola di derivazione nel frigo.
 - Un solo TCA9548A nella scatola, con un canale I2C dedicato a ogni vaso.
 - Tre cavi a 6 conduttori dalla scatola ai rispettivi vasi.
-- Ogni vaso: **1× ToF VL53L4CD** (3 moduli disponibili, scheda esatta da verificare all'arrivo), SHT31D temperatura/umidità e sonda DS18B20.
+- Ogni vaso: **1× ToF VL53L4CD** (3 moduli disponibili, scheda esatta da verificare all'arrivo), **SHT31-DIS temperatura/umidità, modulo APKLVSR dichiarato 2,4–5 V** (alimentazione prevista a 3,3 V), e sonda DS18B20.
 - Conduttori: alimentazione sensori, GND, SDA, SCL, DATA OneWire e riserva. Tensioni e pin da validare sui moduli effettivi.
 - Alimentazione e GND distribuiti ai tre vasi; DATA bypassa il TCA e collega le tre sonde sullo stesso bus, distinguendole per indirizzo.
 
@@ -20,7 +20,7 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 
 - [ ] Leggere codice e documentazione di `experiments/esp32/fermentation-session-logger/`, monitor altezza e Analyzer.
 - [ ] Identificare dove il firmware attuale salva le letture: EEPROM emulata, NVS o filesystem flash. Non dedurlo dal README.
-- [ ] Confermare SHT31D, DS18B20 e lunghezze cavi; definire pin e alimentazione.
+- [ ] Confermare pinout fisico del modulo SHT31-DIS, DS18B20 e lunghezze cavi; definire pin e alimentazione.
 - [ ] Provare se il powerbank REPRC MYC095 mantiene attiva l'uscita USB durante il deep sleep: l'etichetta non dichiara una modalità a basso assorbimento o uscita permanente.
 - [ ] Verificare il pinout effettivo della scheda ESP32-S3-Zero e riservare i GPIO necessari per SPI, I2C, OneWire, pulsante, LED e risveglio da deep sleep.
 - [ ] Assegnare i GPIO SPI del modulo microSD 3,3 V e il pin CS, evitando conflitti con I2C, OneWire, pulsante e LED.
