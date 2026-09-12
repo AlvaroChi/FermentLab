@@ -4,10 +4,9 @@
 
 enum class SensorState : uint8_t { Ok, Missing, Error, Stale };
 
-struct ScalarReading {
+struct SensorStatus {
   SensorState state = SensorState::Missing;
   const char* errorCode = nullptr;
-  float value = NAN;
   uint64_t ageMs = 0;
 };
 
@@ -16,14 +15,17 @@ struct VesselSample {
   uint64_t sequence = 0;
   uint64_t vesselSequence = 0;
   uint64_t elapsedMs = 0;
-  ScalarReading doughTemperatureC;
-  ScalarReading ambientTemperatureC;
-  ScalarReading humidityPct;
-  ScalarReading distanceMm;
-  ScalarReading distanceCalibratedMm;
-  ScalarReading doughHeightMm;
-  ScalarReading doughGrowthMm;
-  ScalarReading volumeMl;
+  SensorStatus dough;
+  SensorStatus ambient;
+  SensorStatus tof;
+  float temperatureDoughC = NAN;
+  float temperatureAmbientC = NAN;
+  float humidityPct = NAN;
+  float distanceMm = NAN;
+  float distanceCalibratedMm = NAN;
+  float doughHeightMm = NAN;
+  float doughGrowthMm = NAN;
+  float volumeMl = NAN;
 };
 
 class SensorHub {
