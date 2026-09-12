@@ -1,0 +1,441 @@
+EESchema Schematic File Version 4
+LIBS:fermentlab-cache
+EELAYER 29 0
+EELAYER END
+$Descr A3 16535 11693
+encoding utf-8
+Sheet 1 1
+Title "FermentLab — electrical architecture"
+Date "2026-09-02"
+Rev "0.1-DRAFT"
+Comp "FermentLab"
+Comment1 "STEP 1/2 — controller and breakout pinouts not frozen"
+Comment2 "ESP32 small board: S2 vs S3 MODELLO DA CONFERMARE"
+Comment3 "Open and save with KiCad 10 to migrate to .kicad_sch"
+Comment4 "Electrical draft — not released for construction"
+$EndDescr
+Text Notes 900 850 0    120  ~ 24
+MAIN UNIT — OUTSIDE REFRIGERATOR
+Text Notes 6600 850 0    120  ~ 24
+JUNCTION BOX — INSIDE REFRIGERATOR
+Text Notes 12500 850 0    120  ~ 24
+VESSEL SENSOR SETS
+$Comp
+L FL_CONTROLLER U1
+U 1 1 66D00001
+P 2300 2900
+F 0 "U1" H 2300 3750 50  0000 C CNN
+F 1 "ESP32 SMALL BOARD - S2/S3 MODELLO DA CONFERMARE" H 2300 3650 50 0000 C CNN
+F 2 "" H 2300 2900 50 0001 C CNN
+F 3 "" H 2300 2900 50 0001 C CNN
+	1    2300 2900
+	1    0    0    -1
+$EndComp
+$Comp
+L R R1
+U 1 1 66D00002
+P 3900 2300
+F 0 "R1" H 3980 2346 50 0000 L CNN
+F 1 "4.7k ONEWIRE PULL-UP" H 3980 2255 50 0000 L CNN
+F 2 "" V 3830 2300 50 0001 C CNN
+F 3 "" H 3900 2300 50 0001 C CNN
+	1    3900 2300
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	3900 2150 3900 2000
+Text Label 3900 2000 1    50   ~ 0
++3V3
+Wire Wire Line
+	3900 2450 3900 2950
+Text Label 3900 2950 0    50   ~ 0
+ONEWIRE_DATA
+Wire Wire Line
+	3200 2550 3650 2550
+Text Label 3650 2550 0    50   ~ 0
+I2C_MAIN_SDA
+Wire Wire Line
+	3200 2700 3650 2700
+Text Label 3650 2700 0    50   ~ 0
+I2C_MAIN_SCL
+Wire Wire Line
+	3200 2850 3900 2850
+Text Label 3450 2850 0    50   ~ 0
+ONEWIRE_DATA
+Wire Wire Line
+	1400 2600 1100 2600
+Text Label 1100 2600 2    50   ~ 0
++3V3
+Wire Wire Line
+	1400 2750 1100 2750
+Text Label 1100 2750 2    50   ~ 0
+GND
+$Comp
+L FL_MICROSD_SPI A1
+U 1 1 66D00003
+P 2600 4900
+F 0 "A1" H 2600 5450 50 0000 C CNN
+F 1 "MICROSD MODULE 3V3 - PHOTO PINOUT" H 2600 5350 50 0000 C CNN
+F 2 "" H 2600 4900 50 0001 C CNN
+F 3 "" H 2600 4900 50 0001 C CNN
+	1    2600 4900
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	1900 4650 1500 4650
+Text Label 1500 4650 2    50   ~ 0
++3V3
+Wire Wire Line
+	1900 4750 1500 4750
+Text Label 1500 4750 2    50   ~ 0
+SD_CS
+Wire Wire Line
+	1900 4850 1500 4850
+Text Label 1500 4850 2    50   ~ 0
+SD_MOSI
+Wire Wire Line
+	1900 4950 1500 4950
+Text Label 1500 4950 2    50   ~ 0
+SD_SCK
+Wire Wire Line
+	1900 5050 1500 5050
+Text Label 1500 5050 2    50   ~ 0
+SD_MISO
+Wire Wire Line
+	1900 5150 1500 5150
+Text Label 1500 5150 2    50   ~ 0
+GND
+Wire Wire Line
+	3200 3150 3650 3150
+Text Label 3650 3150 0    50   ~ 0
+SD_CS
+Wire Wire Line
+	3200 3300 3650 3300
+Text Label 3650 3300 0    50   ~ 0
+SD_MOSI
+Wire Wire Line
+	1400 3200 1100 3200
+Text Label 1100 3200 2    50   ~ 0
+SD_MISO
+Wire Wire Line
+	1400 3350 1100 3350
+Text Label 1100 3350 2    50   ~ 0
+SD_SCK
+$Comp
+L FL_RTC_ZS042 A2
+U 1 1 66D00004
+P 4700 6000
+F 0 "A2" H 4700 6600 50 0000 C CNN
+F 1 "ZS-042 DS3231 + AT24C32 - VERIFY ACTUAL BOARD" H 4700 6500 50 0000 C CNN
+F 2 "" H 4700 6000 50 0001 C CNN
+F 3 "" H 4700 6000 50 0001 C CNN
+	1    4700 6000
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	4000 5750 3650 5750
+Text Label 3650 5750 2    50   ~ 0
++3V3
+Wire Wire Line
+	4000 5900 3650 5900
+Text Label 3650 5900 2    50   ~ 0
+GND
+Wire Wire Line
+	5400 5750 5750 5750
+Text Label 5750 5750 0    50   ~ 0
+I2C_MAIN_SDA
+Wire Wire Line
+	5400 5900 5750 5900
+Text Label 5750 5900 0    50   ~ 0
+I2C_MAIN_SCL
+Wire Wire Line
+	5400 6100 5750 6100
+Text Label 5750 6100 0    50   ~ 0
+RTC_INT_N
+NoConn ~ 5400 6250
+Wire Wire Line
+	3200 3000 3650 3000
+Text Label 3650 3000 0    50   ~ 0
+RTC_INT_N
+$Comp
+L FL_CONN_6 J1
+U 1 1 66D00005
+P 5200 3000
+F 0 "J1" H 5280 3392 50 0000 C CNN
+F 1 "MAIN_TO_JBOX_6P" H 5280 3301 50 0000 C CNN
+F 2 "" H 5200 3000 50 0001 C CNN
+F 3 "" H 5200 3000 50 0001 C CNN
+	1    5200 3000
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	4750 2750 4350 2750
+Text Label 4350 2750 2    50   ~ 0
++3V3
+Wire Wire Line
+	4750 2850 4350 2850
+Text Label 4350 2850 2    50   ~ 0
+GND
+Wire Wire Line
+	4750 2950 4350 2950
+Text Label 4350 2950 2    50   ~ 0
+I2C_MAIN_SDA
+Wire Wire Line
+	4750 3050 4350 3050
+Text Label 4350 3050 2    50   ~ 0
+I2C_MAIN_SCL
+Wire Wire Line
+	4750 3150 4350 3150
+Text Label 4350 3150 2    50   ~ 0
+ONEWIRE_DATA
+Wire Wire Line
+	4750 3250 4350 3250
+Text Label 4350 3250 2    50   ~ 0
+MAIN_JBOX_SPARE
+Text Notes 4300 3500 0    60   ~ 0
+Single 6-core cable through refrigerator boundary
+$Comp
+L FL_CONN_6 J2
+U 1 1 66D00006
+P 7000 3000
+F 0 "J2" H 7080 3392 50 0000 C CNN
+F 1 "JBOX_FROM_MAIN_6P" H 7080 3301 50 0000 C CNN
+F 2 "" H 7000 3000 50 0001 C CNN
+F 3 "" H 7000 3000 50 0001 C CNN
+	1    7000 3000
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	6550 2750 6150 2750
+Text Label 6150 2750 2    50   ~ 0
++3V3
+Wire Wire Line
+	6550 2850 6150 2850
+Text Label 6150 2850 2    50   ~ 0
+GND
+Wire Wire Line
+	6550 2950 6150 2950
+Text Label 6150 2950 2    50   ~ 0
+I2C_MAIN_SDA
+Wire Wire Line
+	6550 3050 6150 3050
+Text Label 6150 3050 2    50   ~ 0
+I2C_MAIN_SCL
+Wire Wire Line
+	6550 3150 6150 3150
+Text Label 6150 3150 2    50   ~ 0
+ONEWIRE_DATA
+Wire Wire Line
+	6550 3250 6150 3250
+Text Label 6150 3250 2    50   ~ 0
+MAIN_JBOX_SPARE
+$Comp
+L FL_TCA9548A_MODULE A3
+U 1 1 66D00007
+P 9000 3300
+F 0 "A3" H 9000 4100 50 0000 C CNN
+F 1 "ONE TCA9548A BREAKOUT - MODELLO DA CONFERMARE" H 9000 4000 50 0000 C CNN
+F 2 "" H 9000 3300 50 0001 C CNN
+F 3 "" H 9000 3300 50 0001 C CNN
+	1    9000 3300
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	8100 2900 7750 2900
+Text Label 7750 2900 2    50   ~ 0
++3V3
+Wire Wire Line
+	8100 3050 7750 3050
+Text Label 7750 3050 2    50   ~ 0
+GND
+Wire Wire Line
+	8100 3200 7750 3200
+Text Label 7750 3200 2    50   ~ 0
+I2C_MAIN_SDA
+Wire Wire Line
+	8100 3350 7750 3350
+Text Label 7750 3350 2    50   ~ 0
+I2C_MAIN_SCL
+Wire Wire Line
+	8100 3550 7750 3550
+Text Label 7750 3550 2    50   ~ 0
+TCA_RESET_N
+Wire Wire Line
+	9900 2900 10350 2900
+Text Label 10350 2900 0    50   ~ 0
+I2C_V1_SDA
+Wire Wire Line
+	9900 3050 10350 3050
+Text Label 10350 3050 0    50   ~ 0
+I2C_V1_SCL
+Wire Wire Line
+	9900 3250 10350 3250
+Text Label 10350 3250 0    50   ~ 0
+I2C_V2_SDA
+Wire Wire Line
+	9900 3400 10350 3400
+Text Label 10350 3400 0    50   ~ 0
+I2C_V2_SCL
+Wire Wire Line
+	9900 3600 10350 3600
+Text Label 10350 3600 0    50   ~ 0
+I2C_V3_SDA
+Wire Wire Line
+	9900 3750 10350 3750
+Text Label 10350 3750 0    50   ~ 0
+I2C_V3_SCL
+Text Notes 8200 4100 0    60   ~ 0
+Provisional address 0x70 only if A2:A0 are LOW
+Text Notes 8200 4200 0    60   ~ 0
+RESET_N local pull-up or optional use of cable spare remains TBD
+$Comp
+L FL_CONN_6 J3
+U 1 1 66D00008
+P 11400 2200
+F 0 "J3" H 11480 2592 50 0000 C CNN
+F 1 "JBOX_TO_VESSEL_1" H 11480 2501 50 0000 C CNN
+F 2 "" H 11400 2200 50 0001 C CNN
+F 3 "" H 11400 2200 50 0001 C CNN
+	1    11400 2200
+	-1   0    0    -1
+$EndComp
+$Comp
+L FL_VESSEL_SET A4
+U 1 1 66D00009
+P 13900 2200
+F 0 "A4" H 13900 2800 50 0000 C CNN
+F 1 "V1: VL53L0X + SHT31D + DS18B20" H 13900 2700 50 0000 C CNN
+F 2 "" H 13900 2200 50 0001 C CNN
+F 3 "" H 13900 2200 50 0001 C CNN
+	1    13900 2200
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	11850 1950 13000 1950
+Text Label 12200 1950 0    50   ~ 0
++3V3
+Wire Wire Line
+	11850 2050 13000 2050
+Text Label 12200 2050 0    50   ~ 0
+GND
+Wire Wire Line
+	11850 2150 13000 2150
+Text Label 12200 2150 0    50   ~ 0
+I2C_V1_SDA
+Wire Wire Line
+	11850 2250 13000 2250
+Text Label 12200 2250 0    50   ~ 0
+I2C_V1_SCL
+Wire Wire Line
+	11850 2350 13000 2350
+Text Label 12200 2350 0    50   ~ 0
+ONEWIRE_DATA
+Wire Wire Line
+	11850 2450 13000 2450
+Text Label 12200 2450 0    50   ~ 0
+V1_SPARE
+$Comp
+L FL_CONN_6 J4
+U 1 1 66D0000A
+P 11400 4500
+F 0 "J4" H 11480 4892 50 0000 C CNN
+F 1 "JBOX_TO_VESSEL_2" H 11480 4801 50 0000 C CNN
+F 2 "" H 11400 4500 50 0001 C CNN
+F 3 "" H 11400 4500 50 0001 C CNN
+	1    11400 4500
+	-1   0    0    -1
+$EndComp
+$Comp
+L FL_VESSEL_SET A5
+U 1 1 66D0000B
+P 13900 4500
+F 0 "A5" H 13900 5100 50 0000 C CNN
+F 1 "V2: VL53L0X + SHT31D + DS18B20" H 13900 5000 50 0000 C CNN
+F 2 "" H 13900 4500 50 0001 C CNN
+F 3 "" H 13900 4500 50 0001 C CNN
+	1    13900 4500
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	11850 4250 13000 4250
+Text Label 12200 4250 0    50   ~ 0
++3V3
+Wire Wire Line
+	11850 4350 13000 4350
+Text Label 12200 4350 0    50   ~ 0
+GND
+Wire Wire Line
+	11850 4450 13000 4450
+Text Label 12200 4450 0    50   ~ 0
+I2C_V2_SDA
+Wire Wire Line
+	11850 4550 13000 4550
+Text Label 12200 4550 0    50   ~ 0
+I2C_V2_SCL
+Wire Wire Line
+	11850 4650 13000 4650
+Text Label 12200 4650 0    50   ~ 0
+ONEWIRE_DATA
+Wire Wire Line
+	11850 4750 13000 4750
+Text Label 12200 4750 0    50   ~ 0
+V2_SPARE
+$Comp
+L FL_CONN_6 J5
+U 1 1 66D0000C
+P 11400 6800
+F 0 "J5" H 11480 7192 50 0000 C CNN
+F 1 "JBOX_TO_VESSEL_3" H 11480 7101 50 0000 C CNN
+F 2 "" H 11400 6800 50 0001 C CNN
+F 3 "" H 11400 6800 50 0001 C CNN
+	1    11400 6800
+	-1   0    0    -1
+$EndComp
+$Comp
+L FL_VESSEL_SET A6
+U 1 1 66D0000D
+P 13900 6800
+F 0 "A6" H 13900 7400 50 0000 C CNN
+F 1 "V3: VL53L0X + SHT31D + DS18B20" H 13900 7300 50 0000 C CNN
+F 2 "" H 13900 6800 50 0001 C CNN
+F 3 "" H 13900 6800 50 0001 C CNN
+	1    13900 6800
+	1    0    0    -1
+$EndComp
+Wire Wire Line
+	11850 6550 13000 6550
+Text Label 12200 6550 0    50   ~ 0
++3V3
+Wire Wire Line
+	11850 6650 13000 6650
+Text Label 12200 6650 0    50   ~ 0
+GND
+Wire Wire Line
+	11850 6750 13000 6750
+Text Label 12200 6750 0    50   ~ 0
+I2C_V3_SDA
+Wire Wire Line
+	11850 6850 13000 6850
+Text Label 12200 6850 0    50   ~ 0
+I2C_V3_SCL
+Wire Wire Line
+	11850 6950 13000 6950
+Text Label 12200 6950 0    50   ~ 0
+ONEWIRE_DATA
+Wire Wire Line
+	11850 7050 13000 7050
+Text Label 12200 7050 0    50   ~ 0
+V3_SPARE
+Text Notes 12400 7900 0    70   ~ 0
+Each vessel cable: 6 x 26 AWG
+Text Notes 12400 8050 0    70   ~ 0
+3V3 / GND / SDA / SCL / OneWire / spare
+Text Notes 900 9000 0    80   ~ 16
+KNOWN LIMITS OF THIS DRAFT
+Text Notes 900 9200 0    60   ~ 0
+ESP32 pin numbers, SD GPIO assignment, breakout pull-ups, regulator, decoupling and connector families remain TBD.
+Text Notes 900 9350 0    60   ~ 0
+ZS-042 is prototype-only until the actual board and coin-cell charging path are inspected.
+Text Notes 900 9500 0    60   ~ 0
+OneWire star topology and I2C rise times require validation with final cable lengths.
+$EndSCHEMATC

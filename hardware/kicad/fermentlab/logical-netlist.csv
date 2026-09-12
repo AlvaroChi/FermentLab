@@ -1,0 +1,32 @@
+net_name,domain,source,loads,physical_scope,status,notes
+VIN_EXT,power,External power input,Main Unit regulator/protection,Main Unit,MODELLO DA CONFERMARE,Voltage connector and current rating TBD
++3V3,power,Main Unit 3.3 V regulator,"ESP32; RTC; MicroSD module; TCA9548A; all VL53L0X; all SHT31D; all DS18B20; pull-ups",Main Unit through Junction Box to vessels,PROVISIONAL,Do not source from ESP32 3V3 pin until power budget is approved
+GND,power/reference,External supply return,All circuits,Entire system,REQUIRED,One common reference distributed with every interface
+I2C_MAIN_SDA,I2C,ESP32-S3-Zero GPIO1,"External RTC SDA; optional ZS-042 AT24C32 SDA; TCA9548A SDA",Main Unit to Junction Box,GPIO1 CONFIRMED,Requires effective upstream pull-up including pull-ups fitted to RTC module
+I2C_MAIN_SCL,I2C,ESP32-S3-Zero GPIO2,"External RTC SCL; optional ZS-042 AT24C32 SCL; TCA9548A SCL",Main Unit to Junction Box,GPIO2 CONFIRMED,Requires effective upstream pull-up including pull-ups fitted to RTC module
+I2C_V1_SDA,I2C,TCA9548A SD0,"VL53L0X V1 SDA; SHT31D V1 SDA",Junction Box to Vessel 1,DEFINED,Requires effective CH0 pull-up after breakout audit
+I2C_V1_SCL,I2C,TCA9548A SC0,"VL53L0X V1 SCL; SHT31D V1 SCL",Junction Box to Vessel 1,DEFINED,Requires effective CH0 pull-up after breakout audit
+I2C_V2_SDA,I2C,TCA9548A SD1,"VL53L0X V2 SDA; SHT31D V2 SDA",Junction Box to Vessel 2,DEFINED,Requires effective CH1 pull-up after breakout audit
+I2C_V2_SCL,I2C,TCA9548A SC1,"VL53L0X V2 SCL; SHT31D V2 SCL",Junction Box to Vessel 2,DEFINED,Requires effective CH1 pull-up after breakout audit
+I2C_V3_SDA,I2C,TCA9548A SD2,"VL53L0X V3 SDA; SHT31D V3 SDA",Junction Box to Vessel 3,DEFINED,Requires effective CH2 pull-up after breakout audit
+I2C_V3_SCL,I2C,TCA9548A SC2,"VL53L0X V3 SCL; SHT31D V3 SCL",Junction Box to Vessel 3,DEFINED,Requires effective CH2 pull-up after breakout audit
+ONEWIRE_DATA,OneWire,ESP32-S3-Zero GPIO4,"DS18B20 V1 DQ; DS18B20 V2 DQ; DS18B20 V3 DQ",Main Unit through Junction Box to all vessels,GPIO4 CONFIRMED,Single 4.7 kOhm pull-up candidate at master end; star topology requires harness validation
+SD_SCK,SPI,ESP32 SPI clock,MicroSD SCK,Main Unit only,GPIO TBD,Exact MicroSD hardware TBD
+SD_MOSI,SPI,ESP32 controller-out,MicroSD DI/MOSI,Main Unit only,GPIO TBD,Exact MicroSD hardware TBD
+SD_MISO,SPI,MicroSD DO/MISO,ESP32 controller-in,Main Unit only,GPIO TBD,Exact MicroSD hardware TBD
+SD_CS,SPI,ESP32 chip select,MicroSD CS,Main Unit only,GPIO TBD,Review boot and strapping constraints before assignment
+SD_VCC,power,+3V3,MicroSD 3V3 pin,Main Unit only,DEFINED FROM PHOTO,Visible pin is explicitly marked 3V3; reverse side still required
+RTC_VBAT,backup power,RTC backup source,External RTC backup pin,Main Unit only,MODELLO DA CONFERMARE,Coin cell or other backup source depends on selected RTC/module
+RTC_INT_N,control,External RTC open-drain alarm output,Optional ESP32 wake GPIO,Main Unit only,PROPOSED,Requires pull-up and suitable wake-capable GPIO if implemented
+RTC_32K,clock,ZS-042 DS3231 32K output,No planned load,Main Unit only,NOT CONNECTED,Leave unconnected unless a later clock-source review requires it
+RTC_EEPROM_A0,configuration,ZS-042 address strap,Optional AT24C32 A0,Main Unit only,VERIFY ACTUAL BOARD,Determines optional EEPROM address only
+RTC_EEPROM_A1,configuration,ZS-042 address strap,Optional AT24C32 A1,Main Unit only,VERIFY ACTUAL BOARD,Determines optional EEPROM address only
+RTC_EEPROM_A2,configuration,ZS-042 address strap,Optional AT24C32 A2,Main Unit only,VERIFY ACTUAL BOARD,Determines optional EEPROM address only
+MAIN_JBOX_SPARE,reserved,Main Unit connector,Junction Box connector,Main Unit to Junction Box,OPEN,Candidate TCA_RESET_N only after approval
+V1_SPARE,reserved,Junction Box connector,Vessel 1 connector,Junction Box to Vessel 1,OPEN,Leave electrically uncommitted
+V2_SPARE,reserved,Junction Box connector,Vessel 2 connector,Junction Box to Vessel 2,OPEN,Leave electrically uncommitted
+V3_SPARE,reserved,Junction Box connector,Vessel 3 connector,Junction Box to Vessel 3,OPEN,Leave electrically uncommitted
+TCA_RESET_N,control,Optional ESP32 GPIO,TCA9548A RESET,Junction Box with optional use of conductor 6,PROPOSED,Active low; otherwise local pull-up and MAIN_JBOX_SPARE remains unused
+TCA_A0,configuration,Local strap,TCA9548A A0,Junction Box,PROVISIONAL,Low gives provisional 7-bit address 0x70
+TCA_A1,configuration,Local strap,TCA9548A A1,Junction Box,PROVISIONAL,Low gives provisional 7-bit address 0x70
+TCA_A2,configuration,Local strap,TCA9548A A2,Junction Box,PROVISIONAL,Low gives provisional 7-bit address 0x70

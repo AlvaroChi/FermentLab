@@ -1,0 +1,40 @@
+{
+  "board": {},
+  "boards": [],
+  "cvpcb": {
+    "equivalence_files": []
+  },
+  "erc": {
+    "erc_exclusions": [],
+    "meta": {
+      "version": 0
+    }
+  },
+  "libraries": {
+    "pinned_footprint_libs": [],
+    "pinned_symbol_libs": []
+  },
+  "meta": {
+    "filename": "fermentlab.kicad_pro",
+    "version": 3
+  },
+  "net_settings": {
+    "classes": [],
+    "meta": {
+      "version": 4
+    }
+  },
+  "pcbnew": {},
+  "schematic": {
+    "meta": {
+      "version": 1
+    }
+  },
+  "sheets": [
+    [
+      "10000000-0000-4000-8000-0000000003e8",
+      "Root"
+    ]
+  ],
+  "text_variables": {}
+}

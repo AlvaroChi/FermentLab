@@ -1,0 +1,1868 @@
+(export
+	(version "E")
+	(design
+		(source "D:\\_Data\\Documents\\PlatformIO\\Projects\\VL53L0X_Calibration\\hardware\\kicad\\fermentlab\\fermentlab.kicad_sch")
+		(date "2026-09-02T20:32:59")
+		(tool "Eeschema 10.0.6")
+		(sheet
+			(number "1")
+			(name "/")
+			(tstamps "/")
+			(title_block
+				(title "FermentLab — electrical architecture and logical netlist")
+				(company "FermentLab")
+				(rev "0.2-DRAFT")
+				(date "2026-09-02")
+				(source "fermentlab.kicad_sch")
+				(comment
+					(number "1")
+					(value "STEP 1/2 — controller and breakout pinouts not frozen")
+				)
+				(comment
+					(number "2")
+					(value "ESP32 small board: S2 vs S3 MODELLO DA CONFERMARE")
+				)
+				(comment
+					(number "3")
+					(value "Native KiCad 10 schematic; validated with kicad-cli")
+				)
+				(comment
+					(number "4")
+					(value "Electrical draft — not released for construction")
+				)
+				(comment
+					(number "5")
+					(value "")
+				)
+				(comment
+					(number "6")
+					(value "")
+				)
+				(comment
+					(number "7")
+					(value "")
+				)
+				(comment
+					(number "8")
+					(value "")
+				)
+				(comment
+					(number "9")
+					(value "")
+				)
+			)
+		)
+	)
+	(components
+		(comp
+			(ref "A1")
+			(value "MICROSD MODULE — PHOTO FRONT PINOUT; REVERSE TO VERIFY")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_MICROSD")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-00000000041d")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "A2")
+			(value "ZS-042 / DS3231 PROTOTYPE — BOARD TO VERIFY")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_RTC")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-00000000042f")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "A3")
+			(value "ONE TCA9548A BREAKOUT — MODELLO DA CONFERMARE")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_TCA9548A")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-00000000046b")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+						(pin
+							(num "7")
+						)
+						(pin
+							(num "8")
+						)
+						(pin
+							(num "9")
+						)
+						(pin
+							(num "10")
+						)
+						(pin
+							(num "11")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "A4")
+			(value "V1: VL53L0X + SHT31D + DS18B20")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_VESSEL")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-0000000004a2")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "A5")
+			(value "V2: VL53L0X + SHT31D + DS18B20")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_VESSEL")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-0000000004c8")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "A6")
+			(value "V3: VL53L0X + SHT31D + DS18B20")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_VESSEL")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-0000000004ee")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J1")
+			(value "MAIN_TO_JBOX_6P")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_CONN_6")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-000000000440")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J2")
+			(value "JBOX_FROM_MAIN_6P")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_CONN_6")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-000000000453")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J3")
+			(value "JBOX_TO_VESSEL_1")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_CONN_6")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-00000000048f")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J4")
+			(value "JBOX_TO_VESSEL_2")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_CONN_6")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-0000000004b5")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "J5")
+			(value "JBOX_TO_VESSEL_3")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_CONN_6")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-0000000004db")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R1")
+			(value "4.7k ONEWIRE pull-up")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_PULLUP")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-000000000412")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "R2")
+			(value "10k TCA RESET pull-up")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_PULLUP")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-000000000484")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "U1")
+			(value "ESP32 SMALL BOARD — S2/S3 MODELLO DA CONFERMARE")
+			(fields
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "FermentLab")
+				(part "FL_CONTROLLER")
+				(description "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(property
+				(name "Sheetname")
+				(value "fermentlab")
+			)
+			(property
+				(name "Sheetfile")
+				(value "fermentlab.kicad_sch")
+			)
+			(sheetpath
+				(names "/")
+				(tstamps "/")
+			)
+			(tstamps "10000000-0000-4000-8000-0000000003fb")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "3")
+						)
+						(pin
+							(num "4")
+						)
+						(pin
+							(num "5")
+						)
+						(pin
+							(num "6")
+						)
+						(pin
+							(num "7")
+						)
+						(pin
+							(num "8")
+						)
+						(pin
+							(num "9")
+						)
+						(pin
+							(num "10")
+						)
+					)
+				)
+			)
+		)
+	)
+	(groups)
+	(variants)
+	(libparts
+		(libpart
+			(lib "FermentLab")
+			(part "FL_CONN_6")
+			(description "FermentLab logical block; physical model/pinout may require confirmation")
+			(fields
+				(field
+					(name "Reference") "J")
+				(field
+					(name "Value") "FL_CONN_6")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "3V3")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "SDA")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "SCL")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "ONEWIRE")
+					(type "passive")
+				)
+				(pin
+					(num "6")
+					(name "SPARE")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "FermentLab")
+			(part "FL_CONTROLLER")
+			(description "FermentLab logical block; physical model/pinout may require confirmation")
+			(fields
+				(field
+					(name "Reference") "U")
+				(field
+					(name "Value") "FL_CONTROLLER")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "+3V3")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "I2C_SDA")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "I2C_SCL")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "ONEWIRE")
+					(type "passive")
+				)
+				(pin
+					(num "6")
+					(name "RTC_INT_N")
+					(type "passive")
+				)
+				(pin
+					(num "7")
+					(name "SD_CS")
+					(type "passive")
+				)
+				(pin
+					(num "8")
+					(name "SD_MOSI")
+					(type "passive")
+				)
+				(pin
+					(num "9")
+					(name "SD_MISO")
+					(type "passive")
+				)
+				(pin
+					(num "10")
+					(name "SD_SCK")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "FermentLab")
+			(part "FL_MICROSD")
+			(description "FermentLab logical block; physical model/pinout may require confirmation")
+			(fields
+				(field
+					(name "Reference") "A")
+				(field
+					(name "Value") "FL_MICROSD")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "3V3")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "CS")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "MOSI")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "CLK")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "MISO")
+					(type "passive")
+				)
+				(pin
+					(num "6")
+					(name "GND")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "FermentLab")
+			(part "FL_PULLUP")
+			(description "FermentLab logical block; physical model/pinout may require confirmation")
+			(fields
+				(field
+					(name "Reference") "R")
+				(field
+					(name "Value") "FL_PULLUP")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "+3V3")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "SIGNAL")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "FermentLab")
+			(part "FL_RTC")
+			(description "FermentLab logical block; physical model/pinout may require confirmation")
+			(fields
+				(field
+					(name "Reference") "A")
+				(field
+					(name "Value") "FL_RTC")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "VCC_3V3")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "SDA")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "SCL")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "SQW_INT")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "FermentLab")
+			(part "FL_TCA9548A")
+			(description "FermentLab logical block; physical model/pinout may require confirmation")
+			(fields
+				(field
+					(name "Reference") "A")
+				(field
+					(name "Value") "FL_TCA9548A")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "VCC_3V3")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "SDA")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "SCL")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "RESET_N")
+					(type "passive")
+				)
+				(pin
+					(num "6")
+					(name "SD0")
+					(type "passive")
+				)
+				(pin
+					(num "7")
+					(name "SC0")
+					(type "passive")
+				)
+				(pin
+					(num "8")
+					(name "SD1")
+					(type "passive")
+				)
+				(pin
+					(num "9")
+					(name "SC1")
+					(type "passive")
+				)
+				(pin
+					(num "10")
+					(name "SD2")
+					(type "passive")
+				)
+				(pin
+					(num "11")
+					(name "SC2")
+					(type "passive")
+				)
+			)
+		)
+		(libpart
+			(lib "FermentLab")
+			(part "FL_VESSEL")
+			(description "FermentLab logical block; physical model/pinout may require confirmation")
+			(fields
+				(field
+					(name "Reference") "A")
+				(field
+					(name "Value") "FL_VESSEL")
+				(field
+					(name "Footprint")
+				)
+				(field
+					(name "Datasheet")
+				)
+				(field
+					(name "Description") "FermentLab logical block; physical model/pinout may require confirmation")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "3V3")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "GND")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "SDA")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "SCL")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "ONEWIRE")
+					(type "passive")
+				)
+				(pin
+					(num "6")
+					(name "SPARE")
+					(type "passive")
+				)
+			)
+		)
+	)
+	(libraries
+		(library
+			(logical "FermentLab")
+			(uri "${KIPRJMOD}/fermentlab.kicad_sym")
+		)
+	)
+	(nets
+		(net
+			(code "1")
+			(name "/+3V3")
+			(class "Default")
+			(node
+				(ref "A1")
+				(pin "6")
+				(pinfunction "GND_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "A2")
+				(pin "5")
+				(pinfunction "SQW_INT_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "A3")
+				(pin "11")
+				(pinfunction "SC2_11")
+				(pintype "passive")
+			)
+			(node
+				(ref "A4")
+				(pin "6")
+				(pinfunction "SPARE_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "A5")
+				(pin "6")
+				(pinfunction "SPARE_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "A6")
+				(pin "6")
+				(pinfunction "SPARE_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "J1")
+				(pin "6")
+				(pinfunction "SPARE_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "J2")
+				(pin "6")
+				(pinfunction "SPARE_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "J3")
+				(pin "6")
+				(pinfunction "SPARE_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "J4")
+				(pin "6")
+				(pinfunction "SPARE_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "J5")
+				(pin "6")
+				(pinfunction "SPARE_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "R1")
+				(pin "2")
+				(pinfunction "SIGNAL_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R2")
+				(pin "2")
+				(pinfunction "SIGNAL_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "10")
+				(pinfunction "SD_SCK_10")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "2")
+			(name "/GND")
+			(class "Default")
+			(node
+				(ref "A1")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "A2")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "A3")
+				(pin "10")
+				(pinfunction "SD2_10")
+				(pintype "passive")
+			)
+			(node
+				(ref "A4")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "A5")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "A6")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "J1")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "J2")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "J3")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "J4")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "J5")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "9")
+				(pinfunction "SD_MISO_9")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "3")
+			(name "/I2C_MAIN_SCL")
+			(class "Default")
+			(node
+				(ref "A2")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "A3")
+				(pin "8")
+				(pinfunction "SD1_8")
+				(pintype "passive")
+			)
+			(node
+				(ref "J1")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "J2")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "7")
+				(pinfunction "SD_CS_7")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "4")
+			(name "/I2C_MAIN_SDA")
+			(class "Default")
+			(node
+				(ref "A2")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "A3")
+				(pin "9")
+				(pinfunction "SC1_9")
+				(pintype "passive")
+			)
+			(node
+				(ref "J1")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "J2")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "8")
+				(pinfunction "SD_MOSI_8")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "5")
+			(name "/I2C_V1_SCL")
+			(class "Default")
+			(node
+				(ref "A3")
+				(pin "5")
+				(pinfunction "RESET_N_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "A4")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "J3")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "6")
+			(name "/I2C_V1_SDA")
+			(class "Default")
+			(node
+				(ref "A3")
+				(pin "6")
+				(pinfunction "SD0_6")
+				(pintype "passive")
+			)
+			(node
+				(ref "A4")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "J3")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "7")
+			(name "/I2C_V2_SCL")
+			(class "Default")
+			(node
+				(ref "A3")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "A5")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "J4")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "8")
+			(name "/I2C_V2_SDA")
+			(class "Default")
+			(node
+				(ref "A3")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "A5")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "J4")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "9")
+			(name "/I2C_V3_SCL")
+			(class "Default")
+			(node
+				(ref "A3")
+				(pin "1")
+				(pinfunction "VCC_3V3_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "A6")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "J5")
+				(pin "3")
+				(pinfunction "SDA_3")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "10")
+			(name "/I2C_V3_SDA")
+			(class "Default")
+			(node
+				(ref "A3")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "A6")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "J5")
+				(pin "4")
+				(pinfunction "SCL_4")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "11")
+			(name "/MAIN_JBOX_SPARE")
+			(class "Default")
+			(node
+				(ref "J1")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J2")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "12")
+			(name "/ONEWIRE_DATA")
+			(class "Default")
+			(node
+				(ref "A4")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "A5")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "A6")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "J1")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "J2")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "J3")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "J4")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "J5")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "R1")
+				(pin "1")
+				(pinfunction "+3V3_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "6")
+				(pinfunction "RTC_INT_N_6")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "13")
+			(name "/RTC_INT_N")
+			(class "Default")
+			(node
+				(ref "A2")
+				(pin "1")
+				(pinfunction "VCC_3V3_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "5")
+				(pinfunction "ONEWIRE_5")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "14")
+			(name "/SD_CS")
+			(class "Default")
+			(node
+				(ref "A1")
+				(pin "5")
+				(pinfunction "MISO_5")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "4")
+				(pinfunction "I2C_SCL_4")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "15")
+			(name "/SD_MISO")
+			(class "Default")
+			(node
+				(ref "A1")
+				(pin "2")
+				(pinfunction "CS_2")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "2")
+				(pinfunction "GND_2")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "16")
+			(name "/SD_MOSI")
+			(class "Default")
+			(node
+				(ref "A1")
+				(pin "4")
+				(pinfunction "CLK_4")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "3")
+				(pinfunction "I2C_SDA_3")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "17")
+			(name "/SD_SCK")
+			(class "Default")
+			(node
+				(ref "A1")
+				(pin "3")
+				(pinfunction "MOSI_3")
+				(pintype "passive")
+			)
+			(node
+				(ref "U1")
+				(pin "1")
+				(pinfunction "+3V3_1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "18")
+			(name "/TCA_RESET_N")
+			(class "Default")
+			(node
+				(ref "A3")
+				(pin "7")
+				(pinfunction "SC0_7")
+				(pintype "passive")
+			)
+			(node
+				(ref "R2")
+				(pin "1")
+				(pinfunction "+3V3_1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "19")
+			(name "/V1_SPARE")
+			(class "Default")
+			(node
+				(ref "A4")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J3")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "20")
+			(name "/V2_SPARE")
+			(class "Default")
+			(node
+				(ref "A5")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J4")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "21")
+			(name "/V3_SPARE")
+			(class "Default")
+			(node
+				(ref "A6")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+			(node
+				(ref "J5")
+				(pin "1")
+				(pinfunction "3V3_1")
+				(pintype "passive")
+			)
+		)
+	)
+)

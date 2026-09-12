@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name "FermentLab")(type "KiCad")(uri "${KIPRJMOD}/fermentlab.kicad_sym")(options "")(descr "FermentLab logical architecture symbols"))
+)
+

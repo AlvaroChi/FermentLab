@@ -1,0 +1,33 @@
+ERC report (2026-09-02T20:20:53, Encoding UTF8)
+Report includes: Errors, Warnings
+
+***** Sheet /
+[label_dangling]: Label not connected
+    ; error
+    @(111.76 mm, 83.82 mm): Label 'TEST_NET'
+[unconnected_wire_endpoint]: Unconnected wire endpoint
+    ; warning
+    @(121.92 mm, 83.82 mm): Horizontal Wire, length 10.16 mm
+[no_connect_dangling]: Unconnected "no connection" flag
+    ; warning
+    @(121.92 mm, 86.36 mm): No Connect
+[no_connect_dangling]: Unconnected "no connection" flag
+    ; warning
+    @(121.92 mm, 88.90 mm): No Connect
+[no_connect_dangling]: Unconnected "no connection" flag
+    ; warning
+    @(121.92 mm, 91.44 mm): No Connect
+[no_connect_dangling]: Unconnected "no connection" flag
+    ; warning
+    @(121.92 mm, 93.98 mm): No Connect
+[no_connect_dangling]: Unconnected "no connection" flag
+    ; warning
+    @(121.92 mm, 96.52 mm): No Connect
+
+ ** ERC messages: 7  Errors 1  Warnings 6
+
+ ** Ignored checks:
+    - Global label only appears once in the schematic
+    - Four connection points are joined together
+    - SPICE model issue
+    - Assigned footprint doesn't match footprint filters
