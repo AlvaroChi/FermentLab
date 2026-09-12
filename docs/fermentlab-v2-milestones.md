@@ -8,7 +8,7 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 
 ## Architettura hardware
 
-- Fuori frigo: powerbank USB, **ESP32-S3-Zero con ESP32-S3FH4R2 (USB-C, 4 MB flash e 2 MB PSRAM integrati)**, **modulo microSD SPI diretto a 3,3 V (circa 18 × 20 mm; pin 3V3, CS, MOSI, CLK, MISO, GND)** e **un solo RTC DS3231 con EEPROM AT24C32** e batteria tampone. Disponibili 3 moduli RTC; 2 restano di scorta.
+- Fuori frigo: **powerbank REPRC modello MYC095 (celle 10.000 mAh, 3,7 V / 37 Wh; capacità nominale in uscita 6.000 mAh; USB 5 V)**, **ESP32-S3-Zero con ESP32-S3FH4R2 (USB-C, 4 MB flash e 2 MB PSRAM integrati)**, **modulo microSD SPI diretto a 3,3 V (circa 18 × 20 mm; pin 3V3, CS, MOSI, CLK, MISO, GND)** e **un solo RTC DS3231 con EEPROM AT24C32** e batteria tampone. Disponibili 3 moduli RTC; 2 restano di scorta.
 - Un cavo a 6 conduttori raggiunge la scatola di derivazione nel frigo.
 - Un solo TCA9548A nella scatola, con un canale I2C dedicato a ogni vaso.
 - Tre cavi a 6 conduttori dalla scatola ai rispettivi vasi.
@@ -20,7 +20,8 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 
 - [ ] Leggere codice e documentazione di `experiments/esp32/fermentation-session-logger/`, monitor altezza e Analyzer.
 - [ ] Identificare dove il firmware attuale salva le letture: EEPROM emulata, NVS o filesystem flash. Non dedurlo dal README.
-- [ ] Confermare powerbank, SHT31D, DS18B20 e lunghezze cavi; definire pin e alimentazione.
+- [ ] Confermare SHT31D, DS18B20 e lunghezze cavi; definire pin e alimentazione.
+- [ ] Provare se il powerbank REPRC MYC095 mantiene attiva l'uscita USB durante il deep sleep: l'etichetta non dichiara una modalità a basso assorbimento o uscita permanente.
 - [ ] Verificare il pinout effettivo della scheda ESP32-S3-Zero e riservare i GPIO necessari per SPI, I2C, OneWire, pulsante, LED e risveglio da deep sleep.
 - [ ] Assegnare i GPIO SPI del modulo microSD 3,3 V e il pin CS, evitando conflitti con I2C, OneWire, pulsante e LED.
 - [ ] Verificare assorbimento reale della microSD attiva e a riposo; se necessario prevedere un interruttore di alimentazione a MOSFET/load switch, senza alimentarla direttamente da un GPIO.
