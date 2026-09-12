@@ -8,19 +8,19 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 
 ## Architettura hardware
 
-- Fuori frigo: **powerbank da etichetta fornita (marca/modello da rileggere, precedente trascrizione non affidabile) (celle 10.000 mAh, 3,7 V / 37 Wh; capacità nominale in uscita 6.000 mAh; USB 5 V)**, **ESP32-S3-Zero con ESP32-S3FH4R2 (USB-C, 4 MB flash e 2 MB PSRAM integrati)**, **modulo microSD SPI diretto a 3,3 V (circa 18 × 20 mm; pin 3V3, CS, MOSI, CLK, MISO, GND)** e **un solo RTC DS3231 con EEPROM AT24C32** e batteria tampone. Ordine mostrato: 3 moduli RTC; richiesto 1, ricezione da confermare.
+- Fuori frigo: **powerbank da etichetta fornita (marca/modello da rileggere, precedente trascrizione non affidabile) (celle 10.000 mAh, 3,7 V / 37 Wh; capacità nominale in uscita 6.000 mAh; USB 5 V)**, **ESP32-S3-Zero con ESP32-S3FH4R2 (USB-C, 4 MB flash e 2 MB PSRAM integrati)**, **modulo microSD SPI diretto a 3,3 V (circa 18 × 20 mm; pin 3V3, CS, MOSI, CLK, MISO, GND)** e **un solo modulo RTC HW-084 ricevuto, con DS3231 e EEPROM AT24C32**. Pin osservati: GND, VCC, SDA, SCL, SQW e 32K; SQW e 32K inizialmente non usati. Il lato batteria non è ancora documentato.
 - Un cavo a 6 conduttori raggiunge la scatola di derivazione nel frigo.
 - Un solo **TCA9548A DAOKAI (marca mostrata nella pagina)** nella scatola, alimentato a 3,3 V, con un canale I2C dedicato a ogni vaso. Pagina relativa a confezione da 5: quantità fisicamente disponibile da confermare; richiesto 1 modulo. Ingresso: VIN, GND, SDA, SCL; `RST` e `A0–A2` da definire nello schema. Uscite: coppie `SDn/SCn` dei canali 0–7.
 - Tre cavi a 6 conduttori dalla scatola ai rispettivi vasi.
-- Ogni vaso: **1× ToF per vaso**. L'ordine dichiara 3× VL53L4CD, ma l'immagine del pinout mostra una scheda marcata `CJVL53L0XV2` (lettura della foto), apparentemente VL53L0X: modello fisico da verificare all'arrivo prima di scegliere driver e libreria, **SHT31-DIS/SHT3X temperatura-umidità, modulo viola APKLVSR dichiarato 2,4–5,5 V** (alimentazione prevista a 3,3 V; pin serigrafati VIN, GND, SCL, SDA, AL, AD; AL non usato; bias AD da verificare), e **sonda AZDelivery DS18B20 impermeabile in acciaio con cavo da 2 m**.
+- Ogni vaso: **1× modulo ToF bianco ricevuto, serigrafato `VL53L4`, con pin VIN, GND, SCL, SDA, INT e LPN**. È coerente con la famiglia VL53L4CD ordinata; la precedente scheda nera `CJVL53L0XV2` era un'immagine commerciale diversa dal pezzo reale. Il suffisso esatto e l'identificazione software restano da confermare prima del driver definitivo. Inoltre: **SHT31-DIS/SHT3X temperatura-umidità, modulo viola APKLVSR dichiarato 2,4–5,5 V** (alimentazione prevista a 3,3 V; pin serigrafati VIN, GND, SCL, SDA, AL, AD; AL non usato; bias AD da verificare), e **sonda AZDelivery DS18B20 impermeabile in acciaio con cavo da 2 m**.
 - Conduttori: alimentazione sensori, GND, SDA, SCL, DATA OneWire e riserva. Tensioni e pin da validare sui moduli effettivi.
 - Alimentazione e GND distribuiti ai tre vasi; DATA bypassa il TCA e collega le tre sonde sullo stesso bus, distinguendole per indirizzo.
 
 ## M1 — Verificare base software e hardware
 
 - [ ] Leggere codice e documentazione di `experiments/esp32/fermentation-session-logger/`, monitor altezza e Analyzer.
-- [ ] Verificare la marcatura dei tre ToF ricevuti: VL53L4CD richiesto contro `CJVL53L0XV2` mostrato nell'immagine commerciale. Non implementare il driver definitivo finché l'identità non è confermata.
-- [ ] Se la scheda reale coincide con l'immagine: pin VCC, GND, SCL, SDA, GPIO1 e XSHUT; per la misura bastano i primi quattro. Tenere il sesto conduttore in riserva: prima di assegnarlo a XSHUT verificare schema del breakout, livelli e pull-up. GPIO1 previsto non usato.
+- [x] Verificare la scheda ToF ricevuta: modulo bianco serigrafato `VL53L4`, coerente con la famiglia VL53L4CD ordinata; esclusa come riferimento la precedente foto commerciale `CJVL53L0XV2`.
+- [ ] Confermare il suffisso esatto tramite identificazione software o documentazione del venditore. Pin reali: VIN, GND, SCL, SDA, INT e LPN. Per la prima misura usare VIN/GND/SCL/SDA, lasciare INT non collegato e non lasciare LPN flottante: prima verificare sul retro/schema l'eventuale pull-up; poi decidere se usare il sesto conduttore per il controllo comune di standby.
 - [ ] Documentare la persistenza effettiva leggendo PersistentQueue e SessionConfigStore; distinguere archivio, coda di invio e configurazione.
 - [ ] Confermare colori/funzioni dei tre fili delle sonde DS18B20 e lunghezze dei cavi di collegamento; definire pin e alimentazione.
 - [ ] Verificare sul modulo ricevuto il pinout SHT31: nell'immagine commerciale la serigrafia mostra VIN, GND, SCL e SDA e contraddice le frecce. AL non usato; verificare il bias AD prima di lasciarlo scollegato.
@@ -29,7 +29,8 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 - [ ] Verificare il pinout effettivo della scheda ESP32-S3-Zero e riservare i GPIO necessari per SPI, I2C, OneWire, pulsante, LED e risveglio da deep sleep.
 - [ ] Assegnare i GPIO SPI del modulo microSD 3,3 V e il pin CS, evitando conflitti con I2C, OneWire, pulsante e LED.
 - [ ] Verificare assorbimento reale della microSD attiva e a riposo; se necessario prevedere un interruttore di alimentazione a MOSFET/load switch, senza alimentarla direttamente da un GPIO.
-- [ ] Verificare sui moduli RTC DS3231/AT24C32 il tipo di batteria previsto e l'eventuale circuito di ricarica prima di inserire una CR2032 non ricaricabile.
+- [x] Confermare il fronte del modulo RTC ricevuto: HW-084 con DS3231, AT24C32 e pin GND/VCC/SDA/SCL/SQW/32K.
+- [ ] Fotografare e verificare il lato portabatteria e l'eventuale circuito di ricarica prima di inserire una CR2032 non ricaricabile.
 - [ ] Verificare che il powerbank non si spenga durante il deep sleep e misurare il consumo dell'intero sistema, inclusi SD e sensori.
 - [ ] Definire compatibilità del formato dati con Analyzer e InfluxDB esistenti.
 
