@@ -12,13 +12,15 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 - Un cavo a 6 conduttori raggiunge la scatola di derivazione nel frigo.
 - Un solo **TCA9548A BAOKAI** nella scatola, alimentato a 3,3 V, con un canale I2C dedicato a ogni vaso. Disponibili 5 moduli; 4 restano di scorta. Ingresso: VIN, GND, SDA, SCL; `RST` e `A0–A2` da definire nello schema. Uscite: coppie `SDn/SCn` dei canali 0–7.
 - Tre cavi a 6 conduttori dalla scatola ai rispettivi vasi.
-- Ogni vaso: **1× ToF VL53L4CD** (3 moduli disponibili, scheda esatta da verificare all'arrivo), **SHT31-DIS/SHT3X temperatura-umidità, modulo viola APKLVSR dichiarato 2,4–5,5 V** (alimentazione prevista a 3,3 V; pin serigrafati VIN, GND, SCL, SDA, AL, AD; AL e AD non necessari), e **sonda AZDelivery DS18B20 impermeabile in acciaio con cavo da 2 m**.
+- Ogni vaso: **1× ToF per vaso**. L'ordine dichiara 3× VL53L4CD, ma l'immagine del pinout mostra una scheda marcata `GY-VL53L0XV2`, apparentemente VL53L0X: modello fisico da verificare all'arrivo prima di scegliere driver e libreria, **SHT31-DIS/SHT3X temperatura-umidità, modulo viola APKLVSR dichiarato 2,4–5,5 V** (alimentazione prevista a 3,3 V; pin serigrafati VIN, GND, SCL, SDA, AL, AD; AL e AD non necessari), e **sonda AZDelivery DS18B20 impermeabile in acciaio con cavo da 2 m**.
 - Conduttori: alimentazione sensori, GND, SDA, SCL, DATA OneWire e riserva. Tensioni e pin da validare sui moduli effettivi.
 - Alimentazione e GND distribuiti ai tre vasi; DATA bypassa il TCA e collega le tre sonde sullo stesso bus, distinguendole per indirizzo.
 
 ## M1 — Verificare base software e hardware
 
 - [ ] Leggere codice e documentazione di `experiments/esp32/fermentation-session-logger/`, monitor altezza e Analyzer.
+- [ ] Verificare la marcatura dei tre ToF ricevuti: VL53L4CD richiesto contro `GY-VL53L0XV2` mostrato nell'immagine commerciale. Non implementare il driver definitivo finché l'identità non è confermata.
+- [ ] Se la scheda reale coincide con l'immagine: pin VCC, GND, SCL, SDA, GPIO1 e XSHUT; per la misura bastano i primi quattro. Valutare XSHUT comune sul sesto conduttore per ridurre il consumo durante sleep; GPIO1 può restare scollegato.
 - [ ] Identificare dove il firmware attuale salva le letture: EEPROM emulata, NVS o filesystem flash. Non dedurlo dal README.
 - [ ] Confermare colori/funzioni dei tre fili delle sonde DS18B20 e lunghezze dei cavi di collegamento; definire pin e alimentazione.
 - [x] Pinout SHT31-DIS/SHT3X confermato dalla serigrafia: collegare VIN, GND, SCL e SDA; lasciare AL e AD scollegati. Ignorare le frecce errate nell'immagine commerciale.
