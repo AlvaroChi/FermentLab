@@ -23,8 +23,8 @@ Prima di ciascun task registrare il commit base: il branch main può avanzare ri
 |---|---|---|
 | ESP32-S3-Zero / S3FH4R2 | Foto commerciale, 4 MB flash e 2 MB PSRAM previsti | Variante reale, pinout, regolatore e budget 3,3 V con picchi SD/Wi-Fi |
 | microSD SPI | Foto fronte/retro: 3V3, CS, MOSI, CLK, MISO, GND | Prova lettura/scrittura e consumi; non alimentare da GPIO |
-| DS3231 + AT24C32 | Ordine mostrato, modulo tipo ZS-042 | Batteria e circuito di carica reali; EEPROM esterna non necessaria al progetto |
-| ToF | Ordine VL53L4CD; altra foto marcata CJVL53L0XV2 | La foto non prova una consegna errata: identificare i moduli ricevuti e driver corretti |
+| DS3231 + AT24C32 | Modulo reale HW-084 ricevuto; fronte e pin GND/VCC/SDA/SCL/SQW/32K confermati | Fotografare retro/portabatteria e verificare circuito di carica; EEPROM esterna non necessaria al progetto |
+| ToF | Modulo reale bianco serigrafato `VL53L4`, pin VIN/GND/SCL/SDA/INT/LPN; coerente con VL53L4CD ordinato | Confermare suffisso tramite software/documentazione e verificare sul retro pull-up di LPN; la vecchia foto `CJVL53L0XV2` non rappresenta il pezzo ricevuto |
 | SHT31-DIS | Descrizione e foto commerciale SHT3X con frecce errate | Seguire serigrafia reale, controllare bias AD e pull-up; AL non usato |
 | DS18B20 AZDelivery | Descrizione cavo 2 m, tre sonde necessarie | Numero posseduto, fili, indirizzi e stabilità del bus |
 | TCA9548A | Pagina DAOKAI da 5 moduli | Richiesto uno; quantità ricevuta non deducibile dalla confezione mostrata; RST, A0–A2 e pull-up |
@@ -35,11 +35,11 @@ Prima di ciascun task registrare il commit base: il branch main può avanzare ri
 - RTC sul bus principale; TCA dentro frigo; canali 0,1,2 ai vasi. Ogni canale porta ToF e SHT31.
 - Selezionare un solo canale TCA alla volta per evitare conflitti fra sensori con stesso indirizzo. Il TCA è uno switch, non un estensore di distanza: verificare capacità, pull-up in parallelo e fronti con i cavi reali.
 - DS18B20 a tre fili su DATA comune, un pull-up iniziale da 4,7 kΩ da validare. Tre rami lunghi non sono automaticamente affidabili.
-- Sesto filo ancora riservato: non assegnare XSHUT comune senza verifica dei livelli elettrici dei breakout. Considerare anche il recupero del TCA con RST.
+- Sesto filo ancora riservato: sul breakout reale `LPN` svolge la funzione di shutdown/low-power. Verificare il pull-up della scheda prima di lasciarlo aperto o assegnarlo come controllo comune. `INT` può restare non collegato nella prima versione a polling. Considerare anche il recupero del TCA con RST.
 - Verificare pull-up di RST e livelli definiti su A0–A2. Non assumere che siano predisposti sulla scheda.
 - Misurare cadute di tensione e picchi SD/Wi-Fi. Se si spegne una periferica, evitare retroalimentazione dai segnali.
 - Supporto sensori: evitare condensa sulle finestre ToF/SHT31; calibrare nella geometria finale. La dichiarazione “impermeabile” delle sonde non documenta di per sé idoneità al contatto alimentare.
-Fonti per il task elettrico: [datasheet TI TCA9548A](https://www.ti.com/lit/ds/symlink/tca9548a.pdf). Le foto dei breakout prevalgono sulle ipotesi di pinout, ma non sostituiscono schema e misure.
+Fonti per il task elettrico: [datasheet TI TCA9548A](https://www.ti.com/lit/ds/symlink/tca9548a.pdf) e [datasheet ST VL53L4CD](https://www.st.com/resource/en/datasheet/vl53l4cd.pdf). ST identifica XSHUT come ingresso attivo basso e GPIO1 come interrupt open-drain; sul breakout ricevuto le funzioni corrispondenti sono serigrafate LPN e INT. Le foto dei breakout prevalgono sulle ipotesi di pinout, ma non sostituiscono schema e misure.
 
 ## Decisioni software
 1. Conservare JSON Lines come archivio canonico. La precedente proposta CSV non è un requisito: CSV sarà un export opzionale. Cartella per sessione con session.json (configurazione versionata), samples.jsonl (eventi/campioni) e stato upload separato.
@@ -71,7 +71,7 @@ Modello predefinito per task circoscritti: Luna. Terra per integrazioni con più
 | Q01 | Integrazione e test recupero, confronto SD/Influx, sessione 72 h | Coordinatore | F04,F05,F06,P01,A01 | Conteggi e identità concordi; guasti e autonomia documentati |
 | Q02 | Documentazione finale uso, cablaggio e recupero | Luna | Q01 | Istruzioni coerenti con firmware realmente verificato |
 
-Task subito eseguibili: D01 e H01. Dopo D01, P01 e A01 possono procedere in parallelo al firmware simulato. L'identità ToF blocca F04, non parser/importer/Analyzer o test SD. Il powerbank blocca la validazione sleep, non tutto lo sviluppo.
+Task subito eseguibili: H01 e prosecuzione del firmware simulato. D01 e F01 risultano già avviati nei rispettivi branch. L'identità di famiglia ToF è ora sufficientemente chiara per preparare l'adapter VL53L4CD; la conferma software del suffisso e la prova fisica restano criteri di F04. Il powerbank blocca la validazione sleep, non tutto lo sviluppo.
 Milestone M1–M7 restano la vista sintetica; questa tabella definisce le dipendenze operative.
 
 ## Regole per delegare senza moltiplicare i token
