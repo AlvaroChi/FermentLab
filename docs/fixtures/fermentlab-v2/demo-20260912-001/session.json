@@ -3,7 +3,7 @@
   "session_id": "demo-20260912-001",
   "device_id": "esp32s3-demo-01",
   "started_at_utc_ms": 1789207200000,
-  "ended_at_utc_ms": 1789207380000,
+  "ended_at_utc_ms": null,
   "time_quality_at_start": "ntp_synced",
   "reading_interval_s": 60,
   "influx_destination_id": "nas-primary",
