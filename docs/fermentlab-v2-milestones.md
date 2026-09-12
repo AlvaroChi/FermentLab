@@ -8,7 +8,7 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 
 ## Architettura hardware
 
-- Fuori frigo: powerbank USB, ESP32, microSD e **un solo RTC DS3231 con EEPROM AT24C32** e batteria tampone. Disponibili 3 moduli; 2 restano di scorta.
+- Fuori frigo: powerbank USB, ESP32, **modulo microSD SPI diretto a 3,3 V (circa 18 × 20 mm; pin 3V3, CS, MOSI, CLK, MISO, GND)** e **un solo RTC DS3231 con EEPROM AT24C32** e batteria tampone. Disponibili 3 moduli RTC; 2 restano di scorta.
 - Un cavo a 6 conduttori raggiunge la scatola di derivazione nel frigo.
 - Un solo TCA9548A nella scatola, con un canale I2C dedicato a ogni vaso.
 - Tre cavi a 6 conduttori dalla scatola ai rispettivi vasi.
@@ -20,7 +20,9 @@ Un ESP32 acquisisce tre vasi, registra tutte le letture su microSD e accende il 
 
 - [ ] Leggere codice e documentazione di `experiments/esp32/fermentation-session-logger/`, monitor altezza e Analyzer.
 - [ ] Identificare dove il firmware attuale salva le letture: EEPROM emulata, NVS o filesystem flash. Non dedurlo dal README.
-- [ ] Confermare modello ESP32, modulo SD, powerbank, SHT31D, DS18B20 e lunghezze cavi; definire pin e alimentazione.
+- [ ] Confermare modello ESP32, powerbank, SHT31D, DS18B20 e lunghezze cavi; definire pin e alimentazione.
+- [ ] Assegnare i GPIO SPI del modulo microSD 3,3 V e il pin CS, evitando conflitti con I2C, OneWire, pulsante e LED.
+- [ ] Verificare assorbimento reale della microSD attiva e a riposo; se necessario prevedere un interruttore di alimentazione a MOSFET/load switch, senza alimentarla direttamente da un GPIO.
 - [ ] Verificare sui moduli RTC DS3231/AT24C32 il tipo di batteria previsto e l'eventuale circuito di ricarica prima di inserire una CR2032 non ricaricabile.
 - [ ] Verificare che il powerbank non si spenga durante il deep sleep e misurare il consumo dell'intero sistema, inclusi SD e sensori.
 - [ ] Definire compatibilità del formato dati con Analyzer e InfluxDB esistenti.
