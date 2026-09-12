@@ -27,9 +27,12 @@ pio run -e esp32s3zero
 ```
 
 Il target usa il board ID PlatformIO `esp32-s3-devkitm-1`, verificato nella
-documentazione ufficiale PlatformIO; `board_upload.flash_size = 4MB` adatta il
-profilo alla flash dichiarata dell'S3FH4R2. Prima di caricare verificare
-fisicamente variante, flash e partizioni della scheda ricevuta.
+documentazione ufficiale PlatformIO, come profilo proxy: non è una dichiarazione
+che la S3-Zero coincida elettricamente con la DevKitM-1. `board_upload.flash_size
+= 4MB`, `ARDUINO_USB_MODE=1` e `ARDUINO_USB_CDC_ON_BOOT=1` configurano il
+profilo iniziale per la flash dichiarata dell'S3FH4R2 e la seriale USB nativa.
+Build, upload, variante fisica, flash e partizioni restano da verificare sulla
+scheda ricevuta.
 
 Per osservare JSONL:
 
