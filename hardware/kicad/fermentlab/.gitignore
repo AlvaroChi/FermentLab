@@ -1,0 +1,23 @@
+# KiCad per-user state, locks, autosaves and backups
+/fermentlab.kicad_prl
+/*.lck
+/_autosave-*
+/*-backups/
+/*.kicad_sch-bak
+/*.kicad_pcb-bak
+
+# Reproducible generated reports and exports
+/fermentlab.net
+/fermentlab-erc.rpt
+/render/fermentlab.svg
+/render/cwd-test/
+
+# Superseded legacy migration inputs
+/fermentlab-cache.lib
+/fermentlab.pro
+/fermentlab.sch
+
+# Local symbol experiments
+/standard-symbol-test.sch
+/standard-symbol-test-erc.rpt
+/render/standard-test/
