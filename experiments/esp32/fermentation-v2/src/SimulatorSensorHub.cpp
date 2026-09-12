@@ -4,12 +4,10 @@
 
 namespace {
 
-ScalarReading ok(float value) {
-  return {SensorState::Ok, nullptr, value, 0};
-}
+SensorStatus ok() { return {SensorState::Ok, nullptr, 0}; }
 
-ScalarReading failed(const char* code) {
-  return {SensorState::Error, code, NAN, 0};
+SensorStatus failed(const char* code) {
+  return {SensorState::Error, code, 0};
 }
 
 float vesselOffset(const char* vesselId) {
@@ -30,16 +28,20 @@ VesselSample SimulatorSensorHub::readVessel(const char* vesselId,
   sample.sequence = sequence;
   sample.vesselSequence = sequence;
   sample.elapsedMs = elapsedMs;
-  sample.doughTemperatureC = ok(24.8f + offset + sequence * 0.05f);
+  sample.dough = ok();
+  sample.ambient = ok();
+  sample.tof = ok();
+  sample.temperatureDoughC = 24.8f + offset + sequence * 0.05f;
   if (sequence % 5 == 1 && strcmp(vesselId, "vessel-2") == 0) {
-    sample.doughTemperatureC = failed("SIMULATED_DS18B20_TIMEOUT");
+    sample.dough = failed("SIMULATED_DS18B20_TIMEOUT");
+    sample.temperatureDoughC = NAN;
   }
-  sample.ambientTemperatureC = ok(23.1f + sequence * 0.02f);
-  sample.humidityPct = ok(62.0f - sequence * 0.1f);
-  sample.distanceMm = ok(118.0f - growth);
-  sample.distanceCalibratedMm = ok(117.4f - growth);
-  sample.doughHeightMm = ok(24.0f + growth);
-  sample.doughGrowthMm = ok(growth);
-  sample.volumeMl = {SensorState::Missing, nullptr, NAN, 0};
+  sample.temperatureAmbientC = 23.1f + sequence * 0.02f;
+  sample.humidityPct = 62.0f - sequence * 0.1f;
+  sample.distanceMm = 118.0f - growth;
+  sample.distanceCalibratedMm = 117.4f - growth;
+  sample.doughHeightMm = 24.0f + growth;
+  sample.doughGrowthMm = growth;
+  sample.volumeMl = NAN;
   return sample;
 }
