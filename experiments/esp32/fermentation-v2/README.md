@@ -42,3 +42,27 @@ pio device monitor -b 115200
 
 Il formato prodotto è definito in
 [`docs/fermentlab-v2-data-contract.md`](../../../docs/fermentlab-v2-data-contract.md).
+
+## Hardware test T01: I2C scanner
+
+Branch: `v2/t01-hardware-tests`. The simulator remains the default environment.
+The scanner is built explicitly with:
+
+```sh
+pio run -e hardware_i2c_scan
+pio run -e hardware_i2c_scan -t upload
+pio device monitor -b 115200
+```
+
+Initial pin assignment for the ESP32-S3-Zero:
+
+| Signal | GPIO |
+|---|---:|
+| SDA | 8 |
+| SCL | 9 |
+
+Start with one module at a time, powered at 3.3 V, and keep the RTC battery
+holder empty during the first test. Expected addresses include DS3231 `0x68`,
+AT24C32 `0x50`–`0x57`, VL53L4CD `0x29`, SHT31 `0x44` or `0x45`,
+and TCA9548A `0x70` when A0–A2 are low. The scan only probes I2C addresses;
+it does not write registers or alter device configuration.
