@@ -1,0 +1,30 @@
+{
+  "schema_version": "fermentlab.session.v2",
+  "session_id": "demo-20260912-001",
+  "device_id": "esp32s3-demo-01",
+  "started_at_utc_ms": 1789207200000,
+  "ended_at_utc_ms": null,
+  "time_quality_at_start": "ntp_synced",
+  "reading_interval_s": 60,
+  "influx_destination_id": "nas-primary",
+  "vessels": [
+    {
+      "vessel_id": "vessel-1",
+      "label": "Vaso 1",
+      "baseline_height_mm": 24.0,
+      "tof_calibration_id": "pending-hardware-verification"
+    },
+    {
+      "vessel_id": "vessel-2",
+      "label": "Vaso 2",
+      "baseline_height_mm": 25.0,
+      "tof_calibration_id": "pending-hardware-verification"
+    },
+    {
+      "vessel_id": "vessel-3",
+      "label": "Vaso 3",
+      "baseline_height_mm": 23.5,
+      "tof_calibration_id": "pending-hardware-verification"
+    }
+  ]
+}

@@ -12,17 +12,30 @@ import streamlit as st
 from fermentlab_analyzer import (
     InfluxRepository,
     InfluxSettings,
+    PhaseAnalysis,
+    PhaseAnnotation,
     add_relative_time,
+    analyze_protocol_phases,
     analyze_session,
+    build_thermal_diagnostic,
     build_recipe_sections,
     build_recipe_summary,
+    compute_fermentation_fingerprint,
+    default_phase_sidecar_dir,
+    detect_thermal_phase_proposal,
+    fingerprints_to_dataframe,
+    fingerprints_to_json,
+    load_phase_annotation,
+    phase_results_to_dataframe,
+    phase_results_to_json,
+    save_phase_annotation,
     summarize_session,
 )
 
 
 st.set_page_config(
-    page_title="FermentLab · Analyzer",
-    page_icon="🫧",
+    page_title="FermentLab Â· Analyzer",
+    page_icon="ðŸ«§",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -274,17 +287,883 @@ def merge_sessions_influx(
 
 def fmt_number(value: float, suffix: str, digits: int = 1) -> str:
     if not math.isfinite(value):
-        return "—"
+        return "â€”"
     return f"{value:.{digits}f}{suffix}"
 
 
 def fmt_timestamp(value: object) -> str:
     if value is None:
-        return "—"
+        return "â€”"
     timestamp = pd.to_datetime(value, utc=True, errors="coerce")
     if pd.isna(timestamp):
-        return "—"
+        return "â€”"
     return f"{timestamp:%Y-%m-%d %H:%M:%S} UTC"
+
+
+def fmt_duration(value_hours: float | None) -> str:
+    """Format a duration without implying sub-sample precision."""
+
+    if value_hours is None or not math.isfinite(float(value_hours)):
+        return "N.A."
+    total_seconds = max(0, int(round(float(value_hours) * 3600.0)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if total_seconds < 600 and seconds:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{hours:02d}:{minutes:02d}"
+
+
+def fmt_optional(
+    value: float | None,
+    suffix: str = "",
+    digits: int = 1,
+    *,
+    signed: bool = False,
+) -> str:
+    if value is None or not math.isfinite(float(value)):
+        return "N.A."
+    sign = "+" if signed and float(value) >= 0 else ""
+    return f"{sign}{float(value):.{digits}f}{suffix}"
+
+
+FINGERPRINT_COMPARISON_FIELDS = (
+    ("t25_h", "t25", "h", True),
+    ("t50_h", "t50", "h", True),
+    ("t75_h", "t75", "h", True),
+    ("t100_h", "Raddoppio", "h", True),
+    ("t150_h", "t150", "h", True),
+    ("t200_h", "Triplicazione", "h", True),
+    ("maximum_growth_percent", "Crescita massima", "%", True),
+    ("max_growth_rate_value_h", "VelocitÃ  massima", "signal/h", True),
+    ("max_specific_growth_rate_h", "VelocitÃ  specifica massima", "1/h", True),
+    ("lag_time_h", "Lag time", "h", True),
+    ("inflection_time_h", "Punto di flesso", "h", True),
+    ("plateau_start_time_h", "Inizio plateau", "h", True),
+    ("active_phase_duration_h", "Durata fase attiva", "h", True),
+    ("late_early_ratio", "Rapporto late/early", "Ã—", True),
+    ("dough_temp_mean_c", "Temperatura media impasto", "Â°C", False),
+    ("dough_temp_at_max_growth_rate_c", "Temperatura a vmax", "Â°C", False),
+    ("ambient_temp_mean_c", "Temperatura media ambiente", "Â°C", False),
+    ("delta_t_max_c", "Î”T massimo", "Â°C", False),
+    ("thermal_integral_20c_c_h", "Integrale termico (20 Â°C)", "Â°CÂ·h", True),
+    ("loss_from_peak_percent", "Perdita dal picco", "%", True),
+)
+
+FINGERPRINT_EVENT_LABELS = {
+    "lag": "Lag",
+    "t25": "t25",
+    "t50": "t50",
+    "t75": "t75",
+    "t100": "t100",
+    "max_rate": "vmax",
+    "inflection": "Flesso",
+    "plateau": "Plateau",
+    "collapse": "Collasso",
+}
+
+PHASE_VISUAL_STYLES = {
+    "cooling": ("rgba(201, 154, 255, 0.20)", "#C99AFF"),
+    "cold": ("rgba(121, 184, 255, 0.22)", "#79B8FF"),
+    "settling": ("rgba(241, 185, 94, 0.22)", "#F1B95E"),
+    "warm_stable": ("rgba(105, 215, 160, 0.18)", "#69D7A0"),
+    "post_fridge": ("rgba(241, 185, 94, 0.18)", "#F1B95E"),
+    "ambient": ("rgba(105, 215, 160, 0.18)", "#69D7A0"),
+}
+
+
+def phase_boundary_style(phase_key: str) -> tuple[str, str]:
+    return {
+        "cold": ("Freddo stabilizzato", "dot"),
+        "settling": ("Uscita dal frigo", "dash"),
+        "post_fridge": ("Uscita dal frigo", "dash"),
+        "warm_stable": ("Impasto stabilizzato", "dashdot"),
+    }.get(phase_key, ("Cambio fase", "dash"))
+
+
+def render_fingerprint_exports(
+    fingerprints: list[FermentationFingerprint], *, key_prefix: str
+) -> None:
+    export_frame = fingerprints_to_dataframe(fingerprints)
+    csv_bytes = export_frame.to_csv(index=False, na_rep="").encode("utf-8")
+    json_text = fingerprints_to_json(fingerprints)
+    file_stem = "fermentation_fingerprint" if len(fingerprints) == 1 else "fermentation_comparison"
+    with st.container(horizontal=True):
+        st.download_button(
+            "Esporta CSV",
+            data=csv_bytes,
+            file_name=f"{file_stem}.csv",
+            mime="text/csv",
+            key=f"{key_prefix}_csv",
+            icon=":material/download:",
+            on_click="ignore",
+        )
+        st.download_button(
+            "Esporta JSON",
+            data=json_text,
+            file_name=f"{file_stem}.json",
+            mime="application/json",
+            key=f"{key_prefix}_json",
+            icon=":material/data_object:",
+            on_click="ignore",
+        )
+
+
+def build_single_fingerprint_table(
+    fingerprint: FermentationFingerprint,
+) -> pd.DataFrame:
+    metrics = fingerprint.metrics
+    rate_unit = f" {metrics.signal_unit}/h"
+    specs = [
+        ("Crescita", "Durata sessione", fmt_duration(metrics.duration_h), metrics.duration_h, None),
+        ("Crescita", "Valore iniziale", fmt_optional(metrics.initial_value, f" {metrics.signal_unit}"), metrics.initial_value, None),
+        ("Crescita", "Valore massimo", fmt_optional(metrics.max_value, f" {metrics.signal_unit}"), metrics.max_value, None),
+        ("Crescita", "Crescita massima", fmt_optional(metrics.maximum_growth_percent, "%", signed=True), metrics.maximum_growth_percent, None),
+        ("Tempi", "t10", fmt_duration(metrics.t10_h), metrics.t10_h, "t10_h"),
+        ("Tempi", "t25", fmt_duration(metrics.t25_h), metrics.t25_h, "t25_h"),
+        ("Tempi", "t50", fmt_duration(metrics.t50_h), metrics.t50_h, "t50_h"),
+        ("Tempi", "t75", fmt_duration(metrics.t75_h), metrics.t75_h, "t75_h"),
+        ("Tempi", "Raddoppio (t100)", fmt_duration(metrics.t100_h), metrics.t100_h, "t100_h"),
+        ("Tempi", "t150", fmt_duration(metrics.t150_h), metrics.t150_h, "t150_h"),
+        ("Tempi", "Triplicazione (t200)", fmt_duration(metrics.t200_h), metrics.t200_h, "t200_h"),
+        ("Tempi", "Lag time", fmt_duration(metrics.lag_time_h), metrics.lag_time_h, "lag_time_h"),
+        ("Dinamica", "VelocitÃ  massima", fmt_optional(metrics.max_growth_rate_value_h, rate_unit), metrics.max_growth_rate_value_h, "max_growth_rate_value_h"),
+        ("Dinamica", "Tempo vmax", fmt_duration(metrics.time_of_max_growth_rate_h), metrics.time_of_max_growth_rate_h, "max_growth_rate_value_h"),
+        ("Dinamica", "VelocitÃ  specifica massima", fmt_optional(metrics.max_specific_growth_rate_h, " 1/h", 3), metrics.max_specific_growth_rate_h, "max_specific_growth_rate_h"),
+        ("Dinamica", "Punto di flesso", fmt_duration(metrics.inflection_time_h), metrics.inflection_time_h, "inflection_time_h"),
+        ("Dinamica", "Early rate (25â€“50%)", fmt_optional(metrics.early_rate_value_h, rate_unit), metrics.early_rate_value_h, None),
+        ("Dinamica", "Late rate (75â€“100%)", fmt_optional(metrics.late_rate_value_h, rate_unit), metrics.late_rate_value_h, None),
+        ("Dinamica", "Rapporto late/early", fmt_optional(metrics.late_early_ratio, "Ã—", 2), metrics.late_early_ratio, "late_early_ratio"),
+        ("Temperatura", "Temperatura iniziale impasto", fmt_optional(metrics.dough_temp_initial_c, " Â°C"), metrics.dough_temp_initial_c, None),
+        ("Temperatura", "Temperatura finale impasto", fmt_optional(metrics.dough_temp_final_c, " Â°C"), metrics.dough_temp_final_c, None),
+        ("Temperatura", "Temperatura media impasto", fmt_optional(metrics.dough_temp_mean_c, " Â°C"), metrics.dough_temp_mean_c, None),
+        ("Temperatura", "Temperatura min / max impasto", f"{fmt_optional(metrics.dough_temp_min_c)} / {fmt_optional(metrics.dough_temp_max_c)} Â°C", metrics.dough_temp_mean_c, None),
+        ("Temperatura", "Temperatura a vmax", fmt_optional(metrics.dough_temp_at_max_growth_rate_c, " Â°C"), metrics.dough_temp_at_max_growth_rate_c, None),
+        ("Temperatura", "Temperatura media ambiente", fmt_optional(metrics.ambient_temp_mean_c, " Â°C"), metrics.ambient_temp_mean_c, None),
+        ("Temperatura", "Î”T medio", fmt_optional(metrics.delta_t_mean_c, " Â°C", signed=True), metrics.delta_t_mean_c, None),
+        ("Temperatura", "Î”T massimo", fmt_optional(metrics.delta_t_max_c, " Â°C", signed=True), metrics.delta_t_max_c, None),
+        ("Termica", "Integrale termico 0 Â°C", fmt_optional(metrics.thermal_integral_0c_c_h, " Â°CÂ·h"), metrics.thermal_integral_0c_c_h, "thermal_integral"),
+        ("Termica", "Integrale termico 4 Â°C", fmt_optional(metrics.thermal_integral_4c_c_h, " Â°CÂ·h"), metrics.thermal_integral_4c_c_h, "thermal_integral"),
+        ("Termica", "Integrale termico 20 Â°C", fmt_optional(metrics.thermal_integral_20c_c_h, " Â°CÂ·h"), metrics.thermal_integral_20c_c_h, "thermal_integral"),
+        ("Fasi", "Inizio plateau", fmt_duration(metrics.plateau_start_time_h), metrics.plateau_start_time_h, "plateau_start_time_h"),
+        ("Fasi", "Inizio fase attiva", fmt_duration(metrics.active_phase_start_h), metrics.active_phase_start_h, "active_phase_duration_h"),
+        ("Fasi", "Fine fase attiva", fmt_duration(metrics.active_phase_end_h), metrics.active_phase_end_h, "active_phase_duration_h"),
+        ("Fasi", "Durata fase attiva", fmt_duration(metrics.active_phase_duration_h), metrics.active_phase_duration_h, "active_phase_duration_h"),
+        ("Fasi", "Collasso", "Rilevato" if metrics.collapse_detected else "Non rilevato", True, "collapse_detected"),
+        ("Fasi", "Inizio collasso", fmt_duration(metrics.collapse_start_time_h), metrics.collapse_start_time_h, None),
+        ("Fasi", "Perdita dal picco", fmt_optional(metrics.loss_from_peak_percent, "%"), metrics.loss_from_peak_percent, None),
+    ]
+    status_labels = {
+        "valid": "Valida",
+        "unavailable": "Non disponibile",
+        "low_confidence": "Bassa confidenza",
+    }
+    rows: list[dict[str, str]] = []
+    for group, label, display_value, raw_value, quality_key in specs:
+        quality = fingerprint.quality.get(quality_key) if quality_key else None
+        if quality is not None:
+            status = quality.status
+            reason = quality.reason or ""
+        elif raw_value is None or (
+            isinstance(raw_value, float) and not math.isfinite(raw_value)
+        ):
+            status = "unavailable"
+            reason = "dato non disponibile"
+        else:
+            status = "valid"
+            reason = ""
+        rows.append(
+            {
+                "Gruppo": group,
+                "Parametro": label,
+                "Valore": display_value,
+                "QualitÃ ": status_labels[status],
+                "Nota": reason,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_fingerprint_summary(fingerprint: FermentationFingerprint) -> None:
+    if fingerprint.warnings:
+        for warning in fingerprint.warnings:
+            st.warning(warning)
+    st.dataframe(
+        build_single_fingerprint_table(fingerprint),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Gruppo": st.column_config.TextColumn(pinned=True),
+            "Parametro": st.column_config.TextColumn(pinned=True),
+        },
+    )
+    render_fingerprint_exports([fingerprint], key_prefix="single_fingerprint")
+
+
+def fmt_phase_threshold(
+    value_h: float | None,
+    duration_h: float,
+    maximum_growth_percent: float | None,
+    threshold_percent: float,
+) -> str:
+    """Format an observed threshold or its right-censored observation window."""
+
+    if value_h is not None and math.isfinite(float(value_h)):
+        return fmt_duration(value_h)
+    if (
+        maximum_growth_percent is not None
+        and math.isfinite(float(maximum_growth_percent))
+        and float(maximum_growth_percent) < threshold_percent
+    ):
+        return f"> {fmt_duration(duration_h)}"
+    return "N.A."
+
+
+def build_phase_diagnostic_figure(
+    analysis: pd.DataFrame,
+    results: list[PhaseAnalysis],
+) -> go.Figure:
+    diagnostic = build_thermal_diagnostic(analysis)
+    figure = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.09,
+        row_heights=[0.64, 0.36],
+        subplot_titles=("Temperature smussate", "Cambio di pendenza termica"),
+    )
+    legend_phase_keys: set[str] = set()
+    for result in results:
+        definition = result.definition
+        fill_color, solid_color = PHASE_VISUAL_STYLES.get(
+            definition.key,
+            ("rgba(197, 212, 204, 0.14)", "#C5D4CC"),
+        )
+        figure.add_vrect(
+            x0=definition.start_h,
+            x1=definition.end_h,
+            fillcolor=fill_color,
+            line_width=0,
+            layer="below",
+            annotation_text=f"<b>{definition.label}</b>",
+            annotation_position="top left",
+            annotation_font_color=solid_color,
+            annotation_font_size=12,
+            row=1,
+            col=1,
+            exclude_empty_subplots=False,
+        )
+        figure.add_vrect(
+            x0=definition.start_h,
+            x1=definition.end_h,
+            fillcolor=fill_color,
+            line_width=0,
+            layer="below",
+            row=2,
+            col=1,
+            exclude_empty_subplots=False,
+        )
+        if definition.key not in legend_phase_keys:
+            figure.add_trace(
+                go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker={"symbol": "square", "size": 12, "color": solid_color},
+                    name=f"Fase Â· {definition.label}",
+                    legendgroup="phase",
+                    hoverinfo="skip",
+                ),
+                row=1,
+                col=1,
+                exclude_empty_subplots=False,
+            )
+            legend_phase_keys.add(definition.key)
+        if definition.start_h > 0:
+            boundary_label, boundary_dash = phase_boundary_style(definition.key)
+            figure.add_vline(
+                x=definition.start_h,
+                line_width=3,
+                line_dash=boundary_dash,
+                line_color=solid_color,
+                annotation_text=f"<b>{boundary_label}</b>",
+                annotation_position="top right",
+                annotation_font_color=solid_color,
+                row=1,
+                col=1,
+            )
+            figure.add_vline(
+                x=definition.start_h,
+                line_width=3,
+                line_dash=boundary_dash,
+                line_color=solid_color,
+                row=2,
+                col=1,
+                exclude_empty_subplots=False,
+            )
+
+    trace_specs = (
+        (
+            "dough_temp_smooth_c",
+            "Temperatura impasto",
+            "#FF7B72",
+            1,
+            "Â°C",
+            "solid",
+        ),
+        (
+            "ambient_temp_smooth_c",
+            "Temperatura ambiente",
+            "#79B8FF",
+            1,
+            "Â°C",
+            "solid",
+        ),
+        (
+            "dough_temp_slope_c_h",
+            "dT/dt impasto",
+            "#FF7B72",
+            2,
+            "Â°C/h",
+            "solid",
+        ),
+        (
+            "ambient_temp_slope_c_h",
+            "dT/dt ambiente",
+            "#79B8FF",
+            2,
+            "Â°C/h",
+            "solid",
+        ),
+        (
+            "thermal_slope_gap_c_h",
+            "Scarto pendenze |Î”dT/dt|",
+            "#F1B95E",
+            2,
+            "Â°C/h",
+            "dot",
+        ),
+    )
+    for field, label, color, row, unit, dash in trace_specs:
+        if field not in diagnostic or not diagnostic[field].notna().any():
+            continue
+        figure.add_trace(
+            go.Scatter(
+                x=diagnostic["elapsed_hours"],
+                y=diagnostic[field],
+                name=label,
+                line={
+                    "color": color,
+                    "width": 2.3 if row == 1 else 1.8,
+                    "dash": dash,
+                },
+                hovertemplate=f"{label}: %{{y:.2f}} {unit}<extra></extra>",
+            ),
+            row=row,
+            col=1,
+        )
+    figure.add_hline(
+        y=0,
+        line_width=1,
+        line_color="rgba(197, 212, 204, 0.32)",
+        row=2,
+        col=1,
+    )
+    figure.update_yaxes(title_text="Temperatura (Â°C)", row=1, col=1)
+    figure.update_yaxes(title_text="dT/dt (Â°C/h)", row=2, col=1)
+    figure.update_xaxes(title_text="Ore dall'inizio sessione", row=2, col=1)
+    figure.update_layout(
+        title="Diagnostica termica dei confini di fase",
+        hovermode="x unified",
+        legend={"orientation": "h", "y": 1.12, "x": 0},
+    )
+    return style_figure(figure, height=570)
+
+
+def add_phase_overlays_to_time_figure(
+    figure: go.Figure,
+    results: list[PhaseAnalysis],
+    session_start: pd.Timestamp,
+    *,
+    show_phase_legend: bool = False,
+) -> go.Figure:
+    """Add saved phase bands to a regular datetime Plotly figure."""
+
+    legend_phase_keys: set[str] = set()
+    for result in results:
+        definition = result.definition
+        fill_color, solid_color = PHASE_VISUAL_STYLES.get(
+            definition.key,
+            ("rgba(197, 212, 204, 0.14)", "#C5D4CC"),
+        )
+        start = session_start + pd.to_timedelta(definition.start_h, unit="h")
+        end = session_start + pd.to_timedelta(definition.end_h, unit="h")
+        figure.add_vrect(
+            x0=start,
+            x1=end,
+            fillcolor=fill_color,
+            line_width=0,
+            layer="below",
+            annotation_text=f"<b>{definition.label}</b>",
+            annotation_position="top left",
+            annotation_font_color=solid_color,
+            annotation_font_size=12,
+            exclude_empty_subplots=False,
+        )
+        if show_phase_legend and definition.key not in legend_phase_keys:
+            figure.add_trace(
+                go.Scatter(
+                    x=[None],
+                    y=[None],
+                    mode="markers",
+                    marker={"symbol": "square", "size": 12, "color": solid_color},
+                    name=f"Fase Â· {definition.label}",
+                    legendgroup="phase",
+                    hoverinfo="skip",
+                )
+            )
+            legend_phase_keys.add(definition.key)
+        if definition.start_h <= 0:
+            continue
+        boundary_label, boundary_dash = phase_boundary_style(definition.key)
+        figure.add_vline(
+            x=start,
+            line_width=3,
+            line_dash=boundary_dash,
+            line_color=solid_color,
+            annotation_text=f"<b>{boundary_label}</b>",
+            annotation_position="top right",
+            annotation_font_color=solid_color,
+            exclude_empty_subplots=False,
+        )
+    return figure
+
+
+def build_phase_results_display(results: list[PhaseAnalysis]) -> pd.DataFrame:
+    rows: list[dict[str, str]] = []
+    for result in results:
+        definition = result.definition
+        metrics = result.fingerprint.metrics
+        maximum_growth = metrics.maximum_growth_percent
+        rows.append(
+            {
+                "Fase": definition.label,
+                "Intervallo sessione": (
+                    f"{fmt_duration(definition.start_h)} - "
+                    f"{fmt_duration(definition.end_h)}"
+                ),
+                "Durata osservata": fmt_duration(definition.duration_h),
+                "Stato": "Completa" if definition.complete else "In corso",
+                "Valore iniziale": fmt_optional(
+                    metrics.initial_value, f" {metrics.signal_unit}"
+                ),
+                "Valore finale": fmt_optional(
+                    result.final_value, f" {metrics.signal_unit}"
+                ),
+                "Crescita osservata": fmt_optional(
+                    result.observed_growth_percent, "%", signed=True
+                ),
+                "t25 locale": fmt_phase_threshold(
+                    metrics.t25_h, definition.duration_h, maximum_growth, 25.0
+                ),
+                "t50 locale": fmt_phase_threshold(
+                    metrics.t50_h, definition.duration_h, maximum_growth, 50.0
+                ),
+                "Raddoppio osservato": fmt_phase_threshold(
+                    metrics.t100_h, definition.duration_h, maximum_growth, 100.0
+                ),
+                "Raddoppio stimato": fmt_duration(result.estimated_doubling_time_h),
+                "VelocitÃ  media": fmt_optional(
+                    result.mean_growth_rate_value_h,
+                    f" {metrics.signal_unit}/h",
+                    3,
+                ),
+                "VelocitÃ  specifica media": fmt_optional(
+                    result.mean_specific_growth_rate_h, " 1/h", 4
+                ),
+                "Temperatura media impasto": fmt_optional(
+                    metrics.dough_temp_mean_c, " C", 1
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_phase_exports(
+    results: list[PhaseAnalysis], *, key_prefix: str, file_stem: str
+) -> None:
+    export_frame = phase_results_to_dataframe(results)
+    with st.container(horizontal=True):
+        st.download_button(
+            "Esporta fasi CSV",
+            data=export_frame.to_csv(index=False, na_rep="").encode("utf-8"),
+            file_name=f"{file_stem}.csv",
+            mime="text/csv",
+            key=f"{key_prefix}_csv",
+            icon=":material/download:",
+            on_click="ignore",
+        )
+        st.download_button(
+            "Esporta fasi JSON",
+            data=phase_results_to_json(results),
+            file_name=f"{file_stem}.json",
+            mime="application/json",
+            key=f"{key_prefix}_json",
+            icon=":material/data_object:",
+            on_click="ignore",
+        )
+
+
+def render_phase_results(results: list[PhaseAnalysis], *, key_prefix: str) -> None:
+    if not results:
+        st.info("Nessuna fase analizzabile con la configurazione corrente.")
+        return
+    st.dataframe(
+        build_phase_results_display(results),
+        width="stretch",
+        hide_index=True,
+        column_config={"Fase": st.column_config.TextColumn(pinned=True)},
+    )
+    st.caption(
+        "Un tempo preceduto da > non Ã¨ stato raggiunto nella finestra osservata. "
+        "Il raddoppio stimato deriva dalla velocitÃ  specifica media della fase e "
+        "non sostituisce un raddoppio realmente osservato."
+    )
+    render_phase_exports(
+        results,
+        key_prefix=key_prefix,
+        file_stem="fermentation_phases",
+    )
+
+
+def build_phase_comparison_display(results: list[PhaseAnalysis]) -> pd.DataFrame:
+    rows: list[dict[str, str]] = []
+    specifications = (
+        (
+            "Durata osservata",
+            "h",
+            lambda result: fmt_duration(result.definition.duration_h),
+        ),
+        (
+            "Stato fase",
+            "",
+            lambda result: (
+                "Completa" if result.definition.complete else "In corso"
+            ),
+        ),
+        (
+            "Valore iniziale",
+            "unitÃ  sessione",
+            lambda result: fmt_optional(
+                result.fingerprint.metrics.initial_value,
+                f" {result.fingerprint.metrics.signal_unit}",
+                digits=2,
+            ),
+        ),
+        (
+            "Valore finale",
+            "unitÃ  sessione",
+            lambda result: fmt_optional(
+                result.final_value,
+                f" {result.fingerprint.metrics.signal_unit}",
+                digits=2,
+            ),
+        ),
+        (
+            "Crescita osservata",
+            "%",
+            lambda result: fmt_optional(
+                result.observed_growth_percent, digits=2, signed=True
+            ),
+        ),
+        (
+            "t25 locale",
+            "h",
+            lambda result: fmt_phase_threshold(
+                result.fingerprint.metrics.t25_h,
+                result.definition.duration_h,
+                result.fingerprint.metrics.maximum_growth_percent,
+                25.0,
+            ),
+        ),
+        (
+            "t50 locale",
+            "h",
+            lambda result: fmt_phase_threshold(
+                result.fingerprint.metrics.t50_h,
+                result.definition.duration_h,
+                result.fingerprint.metrics.maximum_growth_percent,
+                50.0,
+            ),
+        ),
+        (
+            "Raddoppio osservato",
+            "h",
+            lambda result: fmt_phase_threshold(
+                result.fingerprint.metrics.t100_h,
+                result.definition.duration_h,
+                result.fingerprint.metrics.maximum_growth_percent,
+                100.0,
+            ),
+        ),
+        (
+            "Raddoppio stimato",
+            "h",
+            lambda result: fmt_duration(result.estimated_doubling_time_h),
+        ),
+        (
+            "VelocitÃ  media",
+            "unitÃ  sessione/h",
+            lambda result: fmt_optional(
+                result.mean_growth_rate_value_h,
+                f" {result.fingerprint.metrics.signal_unit}/h",
+                digits=3,
+            ),
+        ),
+        (
+            "VelocitÃ  specifica media",
+            "1/h",
+            lambda result: fmt_optional(
+                result.mean_specific_growth_rate_h, digits=4
+            ),
+        ),
+        (
+            "VelocitÃ  massima",
+            "unitÃ  sessione/h",
+            lambda result: fmt_optional(
+                result.fingerprint.metrics.max_growth_rate_value_h,
+                f" {result.fingerprint.metrics.signal_unit}/h",
+                digits=3,
+            ),
+        ),
+        (
+            "Temperatura media impasto",
+            "Â°C",
+            lambda result: fmt_optional(
+                result.fingerprint.metrics.dough_temp_mean_c, digits=1
+            ),
+        ),
+    )
+    for label, unit, formatter in specifications:
+        row = {"Metrica": label, "UnitÃ ": unit}
+        for result in results:
+            row[result.fingerprint.metrics.session_id] = formatter(result)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def render_phase_comparison(
+    results: list[PhaseAnalysis], *, phase_key: str
+) -> None:
+    st.dataframe(
+        build_phase_comparison_display(results),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Metrica": st.column_config.TextColumn(pinned=True),
+            "UnitÃ ": st.column_config.TextColumn(pinned=True),
+        },
+    )
+    st.caption(
+        "Ogni tempo riparte dall'inizio della fase. > indica una soglia non "
+        "raggiunta durante la finestra osservata."
+    )
+    render_phase_exports(
+        results,
+        key_prefix=f"multi_phase_{phase_key}",
+        file_stem=f"fermentation_comparison_{phase_key}",
+    )
+
+
+def build_fingerprint_comparison(
+    fingerprints: list[FermentationFingerprint],
+) -> tuple[pd.DataFrame, set[str]]:
+    signal_units = {fingerprint.metrics.signal_unit for fingerprint in fingerprints}
+    rows: list[dict[str, object]] = []
+    comparable_labels: set[str] = set()
+    for field_name, label, unit, _percentage_allowed in FINGERPRINT_COMPARISON_FIELDS:
+        display_unit = (
+            f"{next(iter(signal_units))}/h"
+            if unit == "signal/h" and len(signal_units) == 1
+            else "unitÃ  segnale/h"
+            if unit == "signal/h"
+            else unit
+        )
+        row: dict[str, object] = {"Metrica": label, "UnitÃ ": display_unit}
+        for fingerprint in fingerprints:
+            row[fingerprint.metrics.session_id] = getattr(
+                fingerprint.metrics, field_name
+            )
+        rows.append(row)
+        if unit != "signal/h" or len(signal_units) == 1:
+            comparable_labels.add(label)
+    return pd.DataFrame(rows).set_index("Metrica"), comparable_labels
+
+
+def build_fingerprint_comparison_display(
+    comparison: pd.DataFrame, comparable_labels: set[str]
+) -> pd.DataFrame:
+    """Build a robust text-only comparison table for the Streamlit UI."""
+
+    display = comparison.reset_index().copy()
+    session_columns = [
+        column for column in display.columns if column not in {"Metrica", "UnitÃ "}
+    ]
+    display[session_columns] = display[session_columns].astype(object)
+
+    def format_value(value: object, unit: str) -> str:
+        if value is None or pd.isna(value):
+            return "N.A."
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if not math.isfinite(numeric):
+            return "N.A."
+        if unit == "h":
+            return fmt_duration(numeric)
+        if unit == "1/h":
+            return f"{numeric:.3f}"
+        return f"{numeric:.2f}"
+
+    for row_index in display.index:
+        metric = str(display.at[row_index, "Metrica"])
+        unit = str(display.at[row_index, "UnitÃ "])
+        numeric = pd.to_numeric(
+            display.loc[row_index, session_columns], errors="coerce"
+        ).dropna()
+        minimum_column = None
+        maximum_column = None
+        if (
+            metric in comparable_labels
+            and len(numeric) >= 2
+            and float(numeric.min()) != float(numeric.max())
+        ):
+            minimum_column = numeric.idxmin()
+            maximum_column = numeric.idxmax()
+
+        for column in session_columns:
+            formatted = format_value(display.at[row_index, column], unit)
+            if column == minimum_column:
+                formatted = f"MIN Â· {formatted}"
+            elif column == maximum_column:
+                formatted = f"MAX Â· {formatted}"
+            display.at[row_index, column] = formatted
+
+    return display
+
+
+def build_reference_difference(
+    fingerprints: list[FermentationFingerprint],
+    reference_session_id: str,
+    target_session_id: str,
+) -> pd.DataFrame:
+    by_session = {
+        fingerprint.metrics.session_id: fingerprint.metrics
+        for fingerprint in fingerprints
+    }
+    reference = by_session[reference_session_id]
+    target = by_session[target_session_id]
+    signal_units = {reference.signal_unit, target.signal_unit}
+    rows: list[dict[str, object]] = []
+    for field_name, label, unit, percentage_allowed in FINGERPRINT_COMPARISON_FIELDS:
+        if unit == "signal/h" and len(signal_units) > 1:
+            continue
+        display_unit = (
+            f"{reference.signal_unit}/h" if unit == "signal/h" else unit
+        )
+        reference_value = getattr(reference, field_name)
+        target_value = getattr(target, field_name)
+        difference = (
+            float(target_value) - float(reference_value)
+            if reference_value is not None and target_value is not None
+            else None
+        )
+        percentage_difference = (
+            difference / abs(float(reference_value)) * 100.0
+            if percentage_allowed
+            and difference is not None
+            and abs(float(reference_value)) > np.finfo(float).eps
+            else None
+        )
+        rows.append(
+            {
+                "Metrica": label,
+                "UnitÃ ": display_unit,
+                "Riferimento": reference_value,
+                "Confronto": target_value,
+                "Differenza": difference,
+                "Differenza %": percentage_difference,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_multi_fingerprint_summary(
+    fingerprints: list[FermentationFingerprint],
+) -> None:
+    comparison, comparable_labels = build_fingerprint_comparison(fingerprints)
+    display_comparison = build_fingerprint_comparison_display(
+        comparison, comparable_labels
+    )
+    low_confidence_sessions = [
+        fingerprint.metrics.session_id
+        for fingerprint in fingerprints
+        if fingerprint.warnings
+    ]
+    if low_confidence_sessions:
+        st.warning(
+            "Metriche a bassa confidenza per: "
+            + ", ".join(low_confidence_sessions)
+            + ". Il JSON esportato include i motivi dettagliati."
+        )
+    st.caption(
+        "MIN e MAX indicano gli estremi tra le sessioni, non quale risultato "
+        "sia migliore. N.A. indica un parametro non disponibile."
+    )
+    st.dataframe(
+        display_comparison,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Metrica": st.column_config.TextColumn(pinned=True),
+            "UnitÃ ": st.column_config.TextColumn(pinned=True),
+        },
+    )
+    render_fingerprint_exports(
+        fingerprints,
+        key_prefix="multi_fingerprint",
+    )
+
+    with st.expander("Differenze rispetto a una sessione", expanded=False):
+        session_ids = [
+            fingerprint.metrics.session_id for fingerprint in fingerprints
+        ]
+        reference_session_id = st.selectbox(
+            "Sessione di riferimento",
+            session_ids,
+            key="fingerprint_reference_session",
+        )
+        target_session_id = st.selectbox(
+            "Sessione da confrontare",
+            [value for value in session_ids if value != reference_session_id],
+            key="fingerprint_target_session",
+        )
+        difference_frame = build_reference_difference(
+            fingerprints,
+            reference_session_id,
+            target_session_id,
+        )
+        st.dataframe(
+            difference_frame,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Riferimento": st.column_config.NumberColumn(format="%.2f"),
+                "Confronto": st.column_config.NumberColumn(format="%.2f"),
+                "Differenza": st.column_config.NumberColumn(format="%+.2f"),
+                "Differenza %": st.column_config.NumberColumn(format="%+.1f%%"),
+            },
+        )
 
 
 def build_admin_info_rows(admin_info: dict[str, object]) -> list[tuple[str, str]]:
@@ -316,7 +1195,7 @@ def get_compare_metric_options(analyses: list[pd.DataFrame]) -> list[tuple[str, 
         ("growth_pct", "Crescita (%)"),
         ("temperature_dough_c", "Temperatura impasto"),
         ("temperature_ambient_c", "Temperatura ambiente"),
-        ("growth_rate_pct_h", "Velocità crescita (%/h)"),
+        ("growth_rate_pct_h", "VelocitÃ  crescita (%/h)"),
         ("growth_accel_pct_h2", "Accelerazione crescita (%/h^2)"),
     ]
     return [
@@ -410,9 +1289,9 @@ def render_metadata(
         return
 
     st.markdown("#### Ricetta")
-    recipe_tabs = st.tabs([title for title, _rows in recipe_sections])
-    for recipe_tab, (_title, rows) in zip(recipe_tabs, recipe_sections):
-        with recipe_tab:
+    for title, rows in recipe_sections:
+        with st.container(border=True):
+            st.markdown(f"**{title}**")
             st.dataframe(
                 pd.DataFrame(rows, columns=["Parametro", "Valore"]),
                 width="stretch",
@@ -425,7 +1304,7 @@ defaults = InfluxSettings.from_environment()
 st.markdown(
     """
     <div class="fl-hero">
-        <div class="fl-eyebrow">FermentLab · controllo fermentazione</div>
+        <div class="fl-eyebrow">FermentLab Â· controllo fermentazione</div>
         <h1>Dal sensore a una decisione chiara.</h1>
         <p>Analizza crescita e temperatura dell'impasto, confronta le sessioni e individua subito i cambi di ritmo.</p>
     </div>
@@ -434,7 +1313,7 @@ st.markdown(
 )
 
 with st.sidebar:
-    st.markdown("### 🫧 FermentLab")
+    st.markdown("### ðŸ«§ FermentLab")
     st.caption("Pannello locale di analisi")
 
     lookback_days = st.number_input(
@@ -446,7 +1325,7 @@ with st.sidebar:
         help="Numero di giorni passati in cui cercare le sessioni.",
     )
     st.caption("giorni precedenti")
-    if st.button("↻  Aggiorna dati", width="stretch", type="primary"):
+    if st.button("â†»  Aggiorna dati", width="stretch", type="primary"):
         st.cache_data.clear()
 
     with st.expander("Connessione InfluxDB", expanded=not bool(defaults.token)):
@@ -462,34 +1341,25 @@ with st.sidebar:
         )
         token = token_override or defaults.token
         if defaults.token:
-            st.success("Credenziali locali caricate", icon="✅")
+            st.success("Credenziali locali caricate", icon="âœ…")
         else:
             st.caption("Il token resta nella sessione corrente e non viene salvato.")
 
-    st.divider()
     management_enabled = st.toggle(
-        "Strumenti amministrativi",
+        "Gestione sessioni",
         value=False,
-        help="Abilita diagnostica, unione e cancellazione delle sessioni.",
+        help="Apre diagnostica, unione e cancellazione delle sessioni.",
     )
-    app_view = (
-        st.radio(
-            "Area di lavoro",
-            ["Analisi", "Gestione sessioni"],
-            index=0,
-        )
-        if management_enabled
-        else "Analisi"
-    )
+    app_view = "Gestione sessioni" if management_enabled else "Analisi"
     if management_enabled:
         st.caption("Unione e cancellazione richiedono permessi di scrittura.")
 
 if not token:
     render_section_title(
         "Collega il database",
-        "Apri “Connessione InfluxDB” nella barra laterale e inserisci il token per iniziare.",
+        "Apri â€œConnessione InfluxDBâ€ nella barra laterale e inserisci il token per iniziare.",
     )
-    st.info("La configurazione resta locale e il token non viene salvato dall'app.", icon="🔒")
+    st.info("La configurazione resta locale e il token non viene salvato dall'app.", icon="ðŸ”’")
     st.stop()
 
 try:
@@ -505,7 +1375,7 @@ if sessions.empty:
     st.stop()
 
 session_labels = {
-    row.session_id: f"{row.session_id} · {row.last_seen:%Y-%m-%d %H:%M} UTC"
+    row.session_id: f"{row.session_id} Â· {row.last_seen:%Y-%m-%d %H:%M} UTC"
     for row in sessions.itertuples()
 }
 
@@ -658,7 +1528,7 @@ if app_view == "Gestione sessioni":
                 "L'overlap confronta timestamp, measurement, field e tag, ignorando il session_id."
             )
             if preview.get("would_create_target"):
-                st.info("La sessione destinazione oggi non esiste ancora: il merge la creerà.")
+                st.info("La sessione destinazione oggi non esiste ancora: il merge la creerÃ .")
 
             delete_source_after_merge = st.checkbox(
                 "Elimina la sessione sorgente dopo la copia",
@@ -739,10 +1609,10 @@ if app_view == "Gestione sessioni":
 
 render_section_title(
     "Esplora le sessioni",
-    "Scegli una fermentazione oppure metti più prove sullo stesso asse temporale.",
+    "Scegli una fermentazione oppure metti piÃ¹ prove sullo stesso asse temporale.",
 )
 analysis_mode = st.segmented_control(
-    "Modalità di analisi",
+    "ModalitÃ  di analisi",
     ["Single Session", "Compare Sessions"],
     default="Single Session",
     format_func=lambda value: {
@@ -758,6 +1628,20 @@ if analysis_mode == "Single Session":
         sessions["session_id"].tolist(),
         format_func=lambda value: session_labels[value],
     )
+    single_section = st.segmented_control(
+        "Sezione",
+        ["Sintesi", "Fasi", "Grafici", "Dettagli"],
+        default="Sintesi",
+        required=True,
+        format_func=lambda value: {
+            "Sintesi": ":material/table_rows: Sintesi",
+            "Fasi": ":material/timeline: Fasi",
+            "Grafici": ":material/show_chart: Grafici",
+            "Dettagli": ":material/description: Dettagli",
+        }[value],
+        key="single_section",
+        width="stretch",
+    )
 else:
     if "compare_offsets" not in st.session_state:
         st.session_state.compare_offsets = {}
@@ -770,70 +1654,105 @@ else:
         placeholder="Seleziona almeno due sessioni",
     )
     if len(selected_session_ids) < 2:
-        st.info("Seleziona almeno due sessioni per la modalità Compare Sessions.")
+        st.info("Seleziona almeno due sessioni per la modalitÃ  Compare Sessions.")
         st.stop()
+    compare_section = st.segmented_control(
+        "Sezione",
+        ["Tabella", "Curve", "Correlazione"],
+        default="Tabella",
+        required=True,
+        format_func=lambda value: {
+            "Tabella": ":material/table_rows: Tabella",
+            "Curve": ":material/show_chart: Curve",
+            "Correlazione": ":material/scatter_plot: Correlazione",
+        }[value],
+        key="compare_section",
+        width="stretch",
+    )
 
-with st.expander("Regolazioni analisi", expanded=False):
+with st.expander(
+    "Impostazioni avanzate",
+    expanded=False,
+    icon=":material/tune:",
+):
     st.caption(
         "I valori predefiniti sono adatti alla maggior parte delle sessioni. "
         "Modificali solo per correggere rumore, picchi o una baseline instabile."
     )
-    smoothing_tab, baseline_tab, dynamics_tab = st.tabs(
-        ["Pulizia segnale", "Baseline", "Dinamica"]
+    st.markdown("**Segnale e baseline**")
+    col_a, col_b = st.columns(2)
+    smoothing_minutes = col_a.slider(
+        "Filtro mediano", 1, 30, 5,
+        help="Riduce il rumore preservando i cambi di tendenza.",
+    )
+    post_smoothing_minutes = col_b.slider(
+        "Smussatura finale", 0, 30, 3,
+        help="Rende piÃ¹ leggibile la curva elaborata.",
+    )
+    col_c, col_d = st.columns(2)
+    despike_window_minutes = col_c.slider(
+        "Rimozione picchi (min)", 0, 20, 3
+    )
+    despike_sigma = col_d.slider(
+        "SensibilitÃ  picchi (sigma)", 0.0, 8.0, 3.5, 0.5
+    )
+    col_e, col_f = st.columns(2)
+    baseline_offset_minutes = col_e.slider(
+        "Ignora l'avvio (min)", 0, 180, 0, 5,
+        help="Utile se il campione non era stabile al momento dello START.",
+    )
+    baseline_minutes = col_f.slider("Finestra baseline (min)", 1, 30, 5)
+
+    st.markdown("**Dinamica ed eventi**")
+    col_g, col_h = st.columns(2)
+    rate_window_minutes = col_g.slider(
+        "Finestra velocitÃ  (min)", 5, 120, 30, 5
+    )
+    acceleration_window_minutes = col_h.slider(
+        "Finestra accelerazione (min)", 10, 180, 60, 5
+    )
+    minimum_slope_points = st.slider(
+        "Campioni minimi per la stima", 3, 15, 5
+    )
+    st.caption(
+        "Le soglie controllano lag, plateau, fase attiva e collasso; "
+        "valgono solo per eventi persistenti."
+    )
+    phase_col_a, phase_col_b = st.columns(2)
+    lag_rate_percent = phase_col_a.slider(
+        "Soglia lag e fase attiva (%)", 5, 50, 20, 5,
+        help="Percentuale di vmax che identifica crescita significativa.",
+    )
+    plateau_rate_percent = phase_col_b.slider(
+        "Soglia plateau (%)", 2, 30, 10, 1,
+        help="Il plateau richiede una velocitÃ  inferiore a questa quota di vmax.",
+    )
+    phase_col_c, phase_col_d = st.columns(2)
+    lag_persistence_minutes = phase_col_c.slider(
+        "Persistenza lag (min)", 5, 120, 15, 5
+    )
+    plateau_persistence_minutes = phase_col_d.slider(
+        "Persistenza plateau (min)", 10, 180, 30, 5
+    )
+    phase_col_e, phase_col_f = st.columns(2)
+    collapse_loss_percent = phase_col_e.slider(
+        "Perdita minima collasso (%)", 1, 30, 5, 1
+    )
+    collapse_persistence_minutes = phase_col_f.slider(
+        "Persistenza collasso (min)", 10, 180, 30, 5
     )
 
-    with smoothing_tab:
-        col_a, col_b = st.columns(2)
-        smoothing_minutes = col_a.slider(
-            "Filtro mediano",
-            1,
-            30,
-            5,
-            help="Riduce il rumore preservando i cambi di tendenza.",
-        )
-        col_a.caption("minuti")
-        post_smoothing_minutes = col_b.slider(
-            "Smussatura finale",
-            0,
-            30,
-            3,
-            help="Rende più leggibile la curva elaborata.",
-        )
-        col_b.caption("minuti")
-
-        col_c, col_d = st.columns(2)
-        despike_window_minutes = col_c.slider(
-            "Finestra rimozione picchi", 0, 20, 3
-        )
-        col_c.caption("minuti · 0 per disattivare")
-        despike_sigma = col_d.slider(
-            "Sensibilità ai picchi", 0.0, 8.0, 3.5, 0.5
-        )
-        col_d.caption("sigma · 0 per disattivare")
-
-    with baseline_tab:
-        col_e, col_f = st.columns(2)
-        baseline_offset_minutes = col_e.slider(
-            "Ignora l'avvio", 0, 180, 0, 5,
-            help="Utile se il campione non era stabile al momento dello START.",
-        )
-        col_e.caption("minuti iniziali")
-        baseline_minutes = col_f.slider("Finestra baseline", 1, 30, 5)
-        col_f.caption("minuti")
-
-    with dynamics_tab:
-        col_g, col_h = st.columns(2)
-        rate_window_minutes = col_g.slider(
-            "Finestra velocità", 5, 120, 30, 5
-        )
-        col_g.caption("minuti")
-        acceleration_window_minutes = col_h.slider(
-            "Finestra accelerazione", 10, 180, 60, 5
-        )
-        col_h.caption("minuti")
-        minimum_slope_points = st.slider(
-            "Campioni minimi per la stima", 3, 15, 5
-        )
+fingerprint_config = FermentationAnalysisConfig(
+    derivative_window_minutes=float(rate_window_minutes),
+    minimum_derivative_points=max(5, int(minimum_slope_points)),
+    lag_rate_fraction=float(lag_rate_percent) / 100.0,
+    lag_persistence_minutes=float(lag_persistence_minutes),
+    plateau_rate_fraction=float(plateau_rate_percent) / 100.0,
+    plateau_persistence_minutes=float(plateau_persistence_minutes),
+    collapse_loss_percent=float(collapse_loss_percent),
+    collapse_persistence_minutes=float(collapse_persistence_minutes),
+    active_rate_fraction=float(lag_rate_percent) / 100.0,
+)
 
 if analysis_mode == "Single Session":
     try:
@@ -905,42 +1824,77 @@ if analysis_mode == "Single Session":
     except Exception as error:
         st.error(f"Analisi della sessione non riuscita: {error}")
         st.stop()
+    try:
+        single_phase_annotation = load_phase_annotation(session_id)
+        single_phase_annotation_error = None
+    except ValueError as error:
+        single_phase_annotation = None
+        single_phase_annotation_error = str(error)
+    single_phase_proposal = detect_thermal_phase_proposal(analysis, session_id)
+    single_saved_phase_results: list[PhaseAnalysis] = []
+    single_saved_phase_error: str | None = None
+    if single_phase_annotation is not None:
+        try:
+            single_saved_phase_results = analyze_protocol_phases(
+                analysis,
+                session_id,
+                single_phase_annotation,
+                fingerprint_config,
+                baseline_minutes=baseline_minutes,
+            )
+        except ValueError as error:
+            single_saved_phase_error = str(error)
 else:
     compare_analyses: list[dict[str, object]] = []
     compare_errors: list[str] = []
     offset_hours: dict[str, float] = {}
     compare_metadata: dict[str, dict[str, object]] = {}
+    compare_phase_results: dict[str, list[PhaseAnalysis]] = {}
+    compare_phase_errors: list[str] = []
 
-    with st.expander("Offset temporali", expanded=True):
-        for session_name in selected_session_ids:
-            current_offset = float(st.session_state.compare_offsets.get(session_name, 0.0))
-            col_offset_h, col_offset_m = st.columns(2)
-            offset_hours_value = col_offset_h.number_input(
-                f"Offset · {session_name} (h)",
-                min_value=-1000.0,
-                max_value=1000.0,
-                value=current_offset,
-                step=0.25,
-                format="%.2f",
-                key=f"offset_h_{session_name}",
-            )
-            offset_minutes_value = col_offset_m.number_input(
-                f"Offset · {session_name} (min)",
-                min_value=-60000.0,
-                max_value=60000.0,
-                value=current_offset * 60.0,
-                step=1.0,
-                format="%.0f",
-                key=f"offset_m_{session_name}",
-            )
-            offset_hours_value = float(offset_hours_value) + float(offset_minutes_value) / 60.0
-            st.session_state.compare_offsets[session_name] = float(offset_hours_value)
-            offset_hours[session_name] = float(offset_hours_value)
-
-    alignment_event = st.text_input(
-        "Etichetta dell'evento di allineamento",
-        value="Evento di riferimento",
-    )
+    if compare_section == "Curve":
+        with st.expander("Offset temporali", expanded=True):
+            for session_name in selected_session_ids:
+                current_offset = float(
+                    st.session_state.compare_offsets.get(session_name, 0.0)
+                )
+                col_offset_h, col_offset_m = st.columns(2)
+                offset_hours_value = col_offset_h.number_input(
+                    f"Offset Â· {session_name} (h)",
+                    min_value=-1000.0,
+                    max_value=1000.0,
+                    value=current_offset,
+                    step=0.25,
+                    format="%.2f",
+                    key=f"offset_h_{session_name}",
+                )
+                offset_minutes_value = col_offset_m.number_input(
+                    f"Offset Â· {session_name} (min)",
+                    min_value=-60000.0,
+                    max_value=60000.0,
+                    value=current_offset * 60.0,
+                    step=1.0,
+                    format="%.0f",
+                    key=f"offset_m_{session_name}",
+                )
+                offset_hours_value = (
+                    float(offset_hours_value)
+                    + float(offset_minutes_value) / 60.0
+                )
+                st.session_state.compare_offsets[session_name] = float(
+                    offset_hours_value
+                )
+                offset_hours[session_name] = float(offset_hours_value)
+        alignment_event = st.text_input(
+            "Etichetta dell'evento di allineamento",
+            value="Evento di riferimento",
+        )
+    else:
+        offset_hours = {
+            session_name: 0.0
+            for session_name in selected_session_ids
+        }
+        alignment_event = "Evento di riferimento"
 
     for session_name in selected_session_ids:
         try:
@@ -982,16 +1936,140 @@ else:
             compare_analyses.append(
                 {"session_id": session_name, "analysis": transformed}
             )
+            compare_fingerprints.append(fingerprint)
+            try:
+                phase_annotation = load_phase_annotation(session_name)
+                compare_phase_results[session_name] = (
+                    analyze_protocol_phases(
+                        analysis,
+                        session_name,
+                        phase_annotation,
+                        fingerprint_config,
+                        baseline_minutes=baseline_minutes,
+                    )
+                    if phase_annotation is not None
+                    else []
+                )
+            except (ValueError, OSError) as phase_error:
+                compare_phase_results[session_name] = []
+                compare_phase_errors.append(
+                    f"{session_name}: annotazione fasi non disponibile ({phase_error})"
+                )
         except Exception as error:
             compare_errors.append(f"{session_name}: {error}")
 
     if compare_errors:
         for error_text in compare_errors:
             st.warning(error_text)
+    if compare_phase_errors:
+        for error_text in compare_phase_errors:
+            st.warning(error_text)
 
     if not compare_analyses:
-        st.error("Nessuna sessione comparabile è stata caricata.")
+        st.error("Nessuna sessione comparabile Ã¨ stata caricata.")
         st.stop()
+
+    if compare_section == "Tabella":
+        render_section_title(
+            "Confronto dei parametri",
+            "Le metriche sono calcolate sulla timeline originale di ogni sessione. "
+            "I valori mancanti restano esplicitamente N.A.",
+        )
+        results_by_phase: dict[str, list[PhaseAnalysis]] = {
+            "cooling": [],
+            "cold": [],
+            "settling": [],
+            "warm_stable": [],
+            "post_fridge": [],
+            "ambient": [],
+        }
+        for session_results in compare_phase_results.values():
+            for phase_result in session_results:
+                results_by_phase.setdefault(phase_result.definition.key, []).append(
+                    phase_result
+                )
+        available_phase_keys = [
+            phase_key
+            for phase_key in (
+                "cooling",
+                "cold",
+                "settling",
+                "warm_stable",
+                "post_fridge",
+                "ambient",
+            )
+            if results_by_phase.get(phase_key)
+        ]
+        scope_options = ["global", *available_phase_keys]
+        scope_labels = {
+            "global": "Sessione completa",
+            "cooling": "Raffreddamento",
+            "cold": "Freddo stabile",
+            "settling": "Assestamento termico",
+            "warm_stable": "Ambiente stabilizzato",
+            "post_fridge": "Post-frigo (vecchia configurazione)",
+            "ambient": "Temperatura ambiente",
+        }
+        comparison_scope = st.selectbox(
+            "Periodo da confrontare",
+            scope_options,
+            index=0,
+            format_func=lambda value: scope_labels[value],
+            key="comparison_phase_scope",
+            width="stretch",
+        )
+        if comparison_scope == "global":
+            render_multi_fingerprint_summary(compare_fingerprints)
+        else:
+            selected_phase_results = results_by_phase[comparison_scope]
+            included_sessions = {
+                result.fingerprint.metrics.session_id
+                for result in selected_phase_results
+            }
+            excluded_sessions = [
+                session_name
+                for session_name in selected_session_ids
+                if session_name not in included_sessions
+            ]
+            st.subheader(f"Confronto locale: {scope_labels[comparison_scope]}")
+            st.caption(
+                "Baseline e orologio sono ricalcolati dall'inizio di questa fase; "
+                "le metriche globali non vengono modificate."
+            )
+            if excluded_sessions:
+                st.info(
+                    "Escluse perchÃ© prive di questa fase: "
+                    + ", ".join(excluded_sessions)
+                )
+            render_phase_comparison(
+                selected_phase_results,
+                phase_key=comparison_scope,
+            )
+        if not available_phase_keys:
+            st.info(
+                "Per confrontare le fasi, configurale prima nella vista TESTO "
+                "di ciascuna sessione."
+            )
+        with st.expander("Metadati sessioni", expanded=False):
+            for session_name in selected_session_ids:
+                metadata = compare_metadata.get(session_name, {})
+                st.markdown(f"#### {session_name}")
+                if not metadata:
+                    st.caption("Nessun metadato disponibile per questa sessione.")
+                    continue
+                render_metadata(metadata)
+        st.stop()
+
+    if compare_section == "Curve":
+        render_section_title(
+            "Curve di confronto",
+            "Allinea le timeline con gli offset senza modificare metriche o dati.",
+        )
+    else:
+        render_section_title(
+            "Correlazione",
+            "Confronta direttamente due variabili per tutte le sessioni selezionate.",
+        )
 
     metric_options = get_compare_metric_options(
         [entry["analysis"] for entry in compare_analyses]
@@ -1002,14 +2080,10 @@ else:
 
     metric_names = [name for name, _label in metric_options]
 
-    compare_view = st.segmented_control(
-        "Vista grafico",
-        ["Serie temporali", "Correlazione 2 variabili"],
-        default="Serie temporali",
-        format_func=lambda value: {
-            "Serie temporali": "Andamento nel tempo",
-            "Correlazione 2 variabili": "Correlazione",
-        }[value],
+    compare_view = (
+        "Serie temporali"
+        if compare_section == "Curve"
+        else "Correlazione 2 variabili"
     )
 
     if compare_view == "Serie temporali":
@@ -1052,7 +2126,6 @@ else:
         compare_figure = go.Figure()
         for entry in compare_analyses:
             analysis = entry["analysis"]
-            offset_hours_value = float(st.session_state.compare_offsets.get(str(entry["session_id"]), 0.0))
             if x_metric not in analysis.columns or y_metric not in analysis.columns:
                 continue
             x_values = analysis[x_metric]
@@ -1065,9 +2138,10 @@ else:
                     x=x_values[valid],
                     y=y_values[valid],
                     mode="lines+markers",
-                    name=f"{entry['session_id']} (offset {offset_hours_value:+.2f} h)",
+                    name=str(entry["session_id"]),
                     hovertemplate=(
-                        f"{entry['session_id']}<br>offset = {offset_hours_value:+.2f} h<br>{x_metric} = %{{x:.3f}}<br>{y_metric} = %{{y:.3f}}<extra></extra>"
+                        f"{entry['session_id']}<br>{x_metric} = %{{x:.3f}}"
+                        f"<br>{y_metric} = %{{y:.3f}}<extra></extra>"
                     ),
                 )
             )
@@ -1114,7 +2188,7 @@ else:
                         x=analysis["t_relative_h"],
                         y=values,
                         mode="lines+markers",
-                        name=f"{entry['session_id']} · {metric_labels[metric_name]}",
+                        name=f"{entry['session_id']} Â· {metric_labels[metric_name]}",
                         hovertemplate=(
                             f"{entry['session_id']}<br>offset = {offset_hours_value:+.2f} h<br>{metric_labels[metric_name]} = %{{y:.3f}}<br>t = %{{x:.2f}} h<extra></extra>"
                         ),
@@ -1151,7 +2225,7 @@ else:
             compare_figure, width="stretch", config={"displaylogo": False}
         )
 
-    with st.expander("Metadati sessioni", expanded=True):
+    with st.expander("Metadati sessioni", expanded=False):
         for session_name in selected_session_ids:
             metadata = compare_metadata.get(session_name, {})
             st.markdown(f"#### {session_name}")
@@ -1176,7 +2250,7 @@ if analysis_mode == "Single Session":
         fmt_number(summary.current_value, f" {summary.signal_unit}"),
     )
     metric_row_primary[3].metric(
-        "Velocità attuale",
+        "VelocitÃ  attuale",
         fmt_number(summary.current_growth_rate_pct_h, "%/h"),
     )
 
@@ -1186,23 +2260,23 @@ if analysis_mode == "Single Session":
     )
     metric_row_secondary[1].metric(
         "Rapporto attuale / iniziale",
-        fmt_number(summary.current_ratio_x, "×", 2),
+        fmt_number(summary.current_ratio_x, "Ã—", 2),
     )
     metric_row_secondary[2].metric(
         "Accelerazione",
-        fmt_number(summary.current_growth_accel_pct_h2, "%/h²"),
+        fmt_number(summary.current_growth_accel_pct_h2, "%/hÂ²"),
     )
 
     if summary.signal_field == "dough_height_mm":
         st.warning(
-            "Questa sessione non contiene `volume_ml`: la crescita percentuale è "
+            "Questa sessione non contiene `volume_ml`: la crescita percentuale Ã¨ "
             "calcolata dall'altezza. Configurando la sezione del contenitore nel "
             "firmware, le sessioni future includeranno anche il volume."
         )
     if analysis["growth_pct"].min() < -5:
         st.info(
             "Il segnale scende oltre il 5% dopo la baseline. Se il campione non era "
-            "ancora stabile allo START, aumenta ‘Ignora i primi minuti’."
+            "ancora stabile allo START, aumenta â€˜Ignora i primi minutiâ€™."
         )
 
     volume_figure = make_subplots(specs=[[{"secondary_y": True}]])
@@ -1277,7 +2351,7 @@ if analysis_mode == "Single Session":
         go.Scatter(
             x=analysis.index,
             y=analysis["growth_rate_pct_h"],
-            name="Velocità crescita",
+            name="VelocitÃ  crescita",
             line={"color": "#6E4BA3", "width": 2},
         ),
         secondary_y=True,
@@ -1291,72 +2365,530 @@ if analysis_mode == "Single Session":
         ),
         secondary_y=True,
     )
-    temperature_figure.update_yaxes(title_text="Temperatura (°C)", secondary_y=False)
+    temperature_figure.update_yaxes(title_text="Temperatura (Â°C)", secondary_y=False)
     temperature_figure.update_yaxes(
-        title_text="Velocità (%/h) e accelerazione (%/h^2)", secondary_y=True
+        title_text="VelocitÃ  (%/h) e accelerazione (%/h^2)", secondary_y=True
     )
     temperature_figure.update_layout(
-        title="Temperatura e velocità di crescita", hovermode="x unified"
+        title="Temperatura e velocitÃ  di crescita", hovermode="x unified"
     )
     style_figure(temperature_figure)
 
     chart_tab, dynamics_tab, details_tab, data_tab = st.tabs(
         ["Andamento", "Temperatura e dinamica", "Ricetta e dettagli", "Dati"]
     )
-    with chart_tab:
-        if single_view == "Serie temporali":
-            st.plotly_chart(volume_figure, width="stretch", config={"displaylogo": False})
-        elif "metric_options" in locals() and x_metric != y_metric:
-            correlation_figure = go.Figure()
-            x_values = analysis[x_metric]
-            y_values = analysis[y_metric]
-            valid = x_values.notna() & y_values.notna()
-            correlation_figure.add_trace(
-                go.Scatter(
-                    x=x_values[valid],
-                    y=y_values[valid],
-                    mode="lines+markers",
-                    name=session_id,
-                    line={"color": "#247a52", "width": 2},
-                    marker={"size": 5, "color": "#d28a26"},
-                    hovertemplate=(
-                        f"{session_id}<br>{x_metric} = %{{x:.3f}}"
-                        f"<br>{y_metric} = %{{y:.3f}}<extra></extra>"
+    derived_series = (
+        (
+            "growth_rate_value_h",
+            f"VelocitÃ  ({summary.signal_unit}/h)",
+            "#69D7A0",
+            1,
+        ),
+        ("specific_growth_rate_h", "VelocitÃ  specifica (1/h)", "#C99AFF", 2),
+        ("delta_t_c", "Î”T (Â°C)", "#F1B95E", 3),
+    )
+    for field_name, label, color, row in derived_series:
+        if field_name not in analysis or not analysis[field_name].notna().any():
+            continue
+        derived_figure.add_trace(
+            go.Scatter(
+                x=analysis.index,
+                y=analysis[field_name],
+                name=label,
+                line={"color": color, "width": 2},
+                hovertemplate=f"{label}: %{{y:.3f}}<extra></extra>",
+            ),
+            row=row,
+            col=1,
+        )
+        derived_figure.add_hline(
+            y=0,
+            line_width=1,
+            line_color="rgba(197, 212, 204, 0.25)",
+            row=row,
+            col=1,
+        )
+    derived_figure.update_yaxes(
+        title_text=f"{summary.signal_unit}/h", row=1, col=1
+    )
+    derived_figure.update_yaxes(title_text="1/h", row=2, col=1)
+    derived_figure.update_yaxes(title_text="Â°C", row=3, col=1)
+    derived_figure.update_xaxes(title_text="Tempo sessione", row=3, col=1)
+    derived_figure.update_layout(
+        title="Curve quantitative derivate",
+        hovermode="x unified",
+    )
+    style_figure(derived_figure, height=760)
+
+    if single_section == "Sintesi":
+        with st.container():
+            st.subheader("Parametri della lievitazione")
+            st.caption(
+                "Fingerprint quantitativo calcolato sulla timeline originale della sessione."
+            )
+            render_fingerprint_summary(fingerprint)
+
+    elif single_section == "Fasi":
+        with st.container():
+            st.subheader("Protocollo e metriche locali")
+            st.caption(
+                "La sessione Influx resta intatta. Salviamo soltanto il confine "
+                "di fase in un file JSON locale separato, con backup automatico."
+            )
+            if single_phase_annotation_error:
+                st.warning(single_phase_annotation_error)
+
+            proposed_annotation = single_phase_proposal.annotation
+            initial_annotation = single_phase_annotation or proposed_annotation
+            saved_protocol = (
+                initial_annotation.protocol
+                if initial_annotation is not None
+                else "unclassified"
+            )
+            phase_protocol = st.segmented_control(
+                "Protocollo della sessione",
+                ["unclassified", "ambient", "fridge_to_ambient"],
+                default=saved_protocol,
+                required=True,
+                format_func=lambda value: {
+                    "unclassified": "Non classificata",
+                    "ambient": "Sempre a temperatura ambiente",
+                    "fridge_to_ambient": "Frigo, poi temperatura ambiente",
+                }[value],
+                key=f"phase_protocol_v3_{session_id}",
+                width="stretch",
+            )
+            if single_phase_annotation is None and proposed_annotation is not None:
+                with st.container(border=True):
+                    st.markdown("**Proposta automatica Â· non salvata**")
+                    st.caption(
+                        f"Confidenza {single_phase_proposal.confidence:.0%}. "
+                        "Controlla linee e fasce; il file locale nasce soltanto "
+                        "quando premi Salva."
+                    )
+                    for note in single_phase_proposal.notes:
+                        st.markdown(f"- {note}")
+            elif single_phase_annotation is None and proposed_annotation is None:
+                st.info(" ".join(single_phase_proposal.notes))
+
+            active_phase_annotation: PhaseAnnotation | None = None
+            cold_stable_h: float | None = None
+            fridge_exit_h: float | None = None
+            warm_stable_h: float | None = None
+            if phase_protocol == "fridge_to_ambient":
+                session_duration_h = float(
+                    (analysis.index[-1] - analysis.index[0]).total_seconds()
+                    / 3600.0
+                )
+                default_exit_h = (
+                    float(initial_annotation.fridge_exit_h)
+                    if initial_annotation is not None
+                    and initial_annotation.fridge_exit_h is not None
+                    else min(24.0, max(0.25, session_duration_h / 2.0))
+                )
+                starts_cold = st.toggle(
+                    "La sessione parte giÃ  a freddo stabile",
+                    value=(
+                        initial_annotation is None
+                        or initial_annotation.cold_stable_h is None
+                    ),
+                    key=f"phase_starts_cold_v3_{session_id}",
+                    help=(
+                        "Disattiva se all'inizio si vede il raffreddamento: comparirÃ  "
+                        "un confine separato per l'inizio del freddo stabile."
                     ),
                 )
+                boundary_columns = st.columns(3)
+                if not starts_cold:
+                    default_cold_h = (
+                        float(initial_annotation.cold_stable_h)
+                        if initial_annotation is not None
+                        and initial_annotation.cold_stable_h is not None
+                        else max(0.01, min(default_exit_h / 3.0, 2.0))
+                    )
+                    cold_stable_h = float(
+                        boundary_columns[0].number_input(
+                            "1 Â· Freddo stabilizzato (h)",
+                            min_value=0.01,
+                            max_value=10000.0,
+                            value=default_cold_h,
+                            step=0.25,
+                            format="%.2f",
+                            key=f"phase_cold_stable_v3_{session_id}",
+                            help="Qui termina il raffreddamento e inizia il freddo stabile.",
+                        )
+                    )
+                else:
+                    boundary_columns[0].caption(
+                        "La fase iniziale Ã¨ trattata direttamente come freddo stabile."
+                    )
+                fridge_exit_h = float(
+                    boundary_columns[1].number_input(
+                        "2 Â· Uscita dal frigo (h)",
+                        min_value=0.01,
+                        max_value=10000.0,
+                        value=default_exit_h,
+                        step=0.25,
+                        format="%.2f",
+                        key=f"phase_fridge_exit_v3_{session_id}",
+                        help=(
+                            "Primo aumento persistente della temperatura ambiente: "
+                            "qui termina il Freddo e inizia l'Assestamento."
+                        ),
+                    )
+                )
+                settling_open = st.toggle(
+                    "L'impasto Ã¨ ancora in assestamento alla fine",
+                    value=(
+                        initial_annotation is None
+                        or initial_annotation.warm_stable_h is None
+                    ),
+                    key=f"phase_settling_open_v3_{session_id}",
+                    help=(
+                        "Mantieni attivo finchÃ© la temperatura dell'impasto continua "
+                        "a salire: non verrÃ  inventata una fase calda stabile."
+                    ),
+                )
+                if not settling_open:
+                    default_stable_h = (
+                        float(initial_annotation.warm_stable_h)
+                        if initial_annotation is not None
+                        and initial_annotation.warm_stable_h is not None
+                        else fridge_exit_h
+                        + max(1.0, (session_duration_h - fridge_exit_h) / 2.0)
+                    )
+                    warm_stable_h = float(
+                        boundary_columns[2].number_input(
+                            "3 Â· Impasto stabilizzato (h)",
+                            min_value=0.02,
+                            max_value=10000.0,
+                            value=max(fridge_exit_h + 0.01, default_stable_h),
+                            step=0.25,
+                            format="%.2f",
+                            key=f"phase_warm_stable_v3_{session_id}",
+                            help=(
+                                "Le pendenze di impasto e ambiente restano quasi "
+                                "nulle e vicine: qui inizia l'Ambiente stabilizzato."
+                            ),
+                        )
+                    )
+                else:
+                    boundary_columns[2].caption(
+                        "Nessuna fase calda stabile: l'assestamento resta aperto."
+                    )
+
+                active_phase_annotation = PhaseAnnotation(
+                    session_id=session_id,
+                    protocol="fridge_to_ambient",
+                    fridge_exit_h=fridge_exit_h,
+                    warm_stable_h=warm_stable_h,
+                    cold_stable_h=cold_stable_h,
+                )
+            elif phase_protocol == "ambient":
+                active_phase_annotation = PhaseAnnotation(session_id, "ambient")
+
+            single_phase_results: list[PhaseAnalysis] = []
+            phase_analysis_error: str | None = None
+            if active_phase_annotation is not None:
+                try:
+                    single_phase_results = analyze_protocol_phases(
+                        analysis,
+                        session_id,
+                        active_phase_annotation,
+                        fingerprint_config,
+                        baseline_minutes=baseline_minutes,
+                    )
+                except ValueError as error:
+                    phase_analysis_error = str(error)
+
+            with st.container(border=True):
+                st.markdown("**Individua visivamente il cambio di fase**")
+                st.caption(
+                    "Le fasce sono una proposta o un'anteprima: i cambi improvvisi "
+                    "si leggono nel pannello dT/dt. Lo scarto giallo confronta le "
+                    "pendenze senza dipendere dall'offset dei sensori; nulla viene "
+                    "salvato automaticamente."
+                )
+                try:
+                    phase_diagnostic_figure = build_phase_diagnostic_figure(
+                        analysis,
+                        single_phase_results,
+                    )
+                except ValueError as error:
+                    st.info(f"Diagnostica termica non disponibile: {error}")
+                else:
+                    st.plotly_chart(
+                        phase_diagnostic_figure,
+                        width="stretch",
+                        config={"displaylogo": False},
+                        key=f"phase_diagnostic_{session_id}",
+                    )
+                if active_phase_annotation is None:
+                    st.caption(
+                        "Nessuna fascia applicata: scegli un protocollo per classificare "
+                        "manualmente la sessione."
+                    )
+                elif single_phase_results:
+                    if (
+                        phase_protocol == "fridge_to_ambient"
+                        and fridge_exit_h is not None
+                        and fridge_exit_h
+                        > float(
+                            (analysis.index[-1] - analysis.index[0]).total_seconds()
+                            / 3600.0
+                        )
+                    ):
+                        st.info(
+                            "L'uscita impostata Ã¨ oltre la durata osservata: il "
+                            "grafico mostra soltanto la fase Freddo ancora in corso."
+                        )
+                    elif (
+                        phase_protocol == "fridge_to_ambient"
+                        and warm_stable_h is not None
+                        and warm_stable_h
+                        > float(
+                            (analysis.index[-1] - analysis.index[0]).total_seconds()
+                            / 3600.0
+                        )
+                    ):
+                        st.info(
+                            "La stabilizzazione Ã¨ oltre la durata osservata: "
+                            "l'Assestamento termico Ã¨ ancora in corso."
+                        )
+
+            annotation_changed = (
+                active_phase_annotation is None
+                or single_phase_annotation is None
+                or single_phase_annotation.protocol != phase_protocol
+                or single_phase_annotation.fridge_exit_h != fridge_exit_h
+                or single_phase_annotation.warm_stable_h != warm_stable_h
+                or single_phase_annotation.cold_stable_h != cold_stable_h
             )
-            correlation_figure.update_layout(
-                title="Correlazione tra due variabili",
-                xaxis_title=next(
-                    label for name, label in metric_options if name == x_metric
-                ),
-                yaxis_title=next(
-                    label for name, label in metric_options if name == y_metric
-                ),
-                hovermode="closest",
-            )
-            style_figure(correlation_figure)
+            save_column, status_column = st.columns([1, 3])
+            if save_column.button(
+                "Salva configurazione fasi",
+                type="primary",
+                key=f"save_phase_annotation_{session_id}",
+                icon=":material/save:",
+                disabled=active_phase_annotation is None,
+            ):
+                try:
+                    if active_phase_annotation is None:
+                        raise ValueError("Scegli un protocollo prima di salvare.")
+                    saved_path = save_phase_annotation(active_phase_annotation)
+                except (OSError, ValueError) as error:
+                    st.error(f"Configurazione fasi non salvata: {error}")
+                else:
+                    st.success(f"Configurazione salvata in {saved_path}")
+                    st.rerun()
+            if active_phase_annotation is None:
+                status_column.info(
+                    "Sessione non classificata: nessun metadato di fase verrÃ  salvato."
+                )
+            elif annotation_changed:
+                status_column.info(
+                    "Anteprima attiva: salva per ritrovare queste fasi e usarle "
+                    "nei confronti."
+                )
+            else:
+                status_column.success("Configurazione fasi salvata.")
+            st.caption(f"Archivio locale: {default_phase_sidecar_dir()}")
+
+            if phase_analysis_error:
+                st.warning(
+                    f"Analisi per fase non disponibile: {phase_analysis_error}"
+                )
+            else:
+                render_phase_results(
+                    single_phase_results,
+                    key_prefix=f"single_phase_{session_id}",
+                )
+
+    elif single_section == "Dettagli":
+        with st.container():
+            if session_metadata:
+                render_metadata(session_metadata)
+            else:
+                st.info("Nessun metadato disponibile per questa sessione.")
+
+            with st.expander("Dati elaborati", expanded=False):
+                st.caption("Valori con i parametri di analisi attualmente selezionati.")
+                st.dataframe(
+                    analysis.reset_index(), width="stretch", hide_index=True
+                )
+    else:
+        with st.container():
+            with st.container():
+                selected_fingerprint_events = st.multiselect(
+                    "Eventi caratteristici sul grafico",
+                    list(FINGERPRINT_EVENT_LABELS),
+                    default=["t25", "t50", "t100", "max_rate", "plateau"],
+                    format_func=lambda value: FINGERPRINT_EVENT_LABELS[value],
+                    help="Le metriche usano sempre la timeline originale della sessione.",
+                    key="single_graph_events",
+                )
+                event_figure = go.Figure(volume_figure)
+                if single_saved_phase_results:
+                    add_phase_overlays_to_time_figure(
+                        event_figure,
+                        single_saved_phase_results,
+                        analysis.index[0],
+                    )
+                for event_name in selected_fingerprint_events:
+                    event_time_h = fingerprint.events_h.get(event_name)
+                    if event_time_h is None:
+                        continue
+                    event_timestamp = (
+                        analysis.index[0] + pd.to_timedelta(event_time_h, unit="h")
+                    ).to_pydatetime(warn=False)
+                    event_color = (
+                        "#F1B95E" if event_name == "collapse" else "#A9BBB1"
+                    )
+                    event_figure.add_vline(
+                        x=event_timestamp,
+                        line_width=1,
+                        line_dash="dot",
+                        line_color=event_color,
+                    )
+                    event_figure.add_annotation(
+                        x=event_timestamp,
+                        y=1.0,
+                        xref="x",
+                        yref="paper",
+                        text=FINGERPRINT_EVENT_LABELS[event_name],
+                        textangle=-90,
+                        showarrow=False,
+                        yanchor="bottom",
+                        font={"size": 11, "color": event_color},
+                    )
+                st.plotly_chart(
+                    event_figure,
+                    width="stretch",
+                    config={"displaylogo": False},
+                )
+                if temperature_overview_figure.data:
+                    temperature_with_phases = go.Figure(
+                        temperature_overview_figure
+                    )
+                    if single_saved_phase_results:
+                        add_phase_overlays_to_time_figure(
+                            temperature_with_phases,
+                            single_saved_phase_results,
+                            analysis.index[0],
+                            show_phase_legend=True,
+                        )
+                    st.plotly_chart(
+                        temperature_with_phases,
+                        width="stretch",
+                        config={"displaylogo": False},
+                    )
+                else:
+                    st.caption("Questa sessione non contiene dati di temperatura.")
+                if single_saved_phase_error:
+                    st.warning(
+                        "Fasi salvate non visualizzabili: "
+                        + single_saved_phase_error
+                    )
+                elif single_phase_annotation is None:
+                    st.caption(
+                        "Per mostrare le fasce anche qui, configura e salva i "
+                        "confini nella sezione Fasi."
+                    )
+            with st.expander(
+                "Correlazione fra due variabili",
+                expanded=False,
+                icon=":material/scatter_plot:",
+            ):
+                metric_options = get_compare_metric_options([analysis])
+                if len(metric_options) < 2:
+                    st.info(
+                        "I dati disponibili non permettono una correlazione tra due variabili."
+                    )
+                else:
+                    metric_names = [name for name, _label in metric_options]
+                    x_metric = st.selectbox(
+                        "Variabile X",
+                        metric_names,
+                        format_func=lambda value: next(
+                            label for name, label in metric_options if name == value
+                        ),
+                        index=0,
+                        key="single_correlation_x",
+                    )
+                    y_metric = st.selectbox(
+                        "Variabile Y",
+                        metric_names,
+                        format_func=lambda value: next(
+                            label for name, label in metric_options if name == value
+                        ),
+                        index=1,
+                        key="single_correlation_y",
+                    )
+                    if x_metric == y_metric:
+                        st.info(
+                            "Scegli due variabili diverse per visualizzare la correlazione."
+                        )
+                    else:
+                        correlation_figure = go.Figure()
+                        x_values = analysis[x_metric]
+                        y_values = analysis[y_metric]
+                        valid = x_values.notna() & y_values.notna()
+                        correlation_figure.add_trace(
+                            go.Scatter(
+                                x=x_values[valid],
+                                y=y_values[valid],
+                                mode="lines+markers",
+                                name=session_id,
+                                line={"color": "#69D7A0", "width": 2},
+                                marker={"size": 5, "color": "#F1B95E"},
+                                hovertemplate=(
+                                    f"{session_id}<br>{x_metric} = %{{x:.3f}}"
+                                    f"<br>{y_metric} = %{{y:.3f}}<extra></extra>"
+                                ),
+                            )
+                        )
+                        correlation_figure.update_layout(
+                            title="Correlazione tra due variabili",
+                            xaxis_title=next(
+                                label
+                                for name, label in metric_options
+                                if name == x_metric
+                            ),
+                            yaxis_title=next(
+                                label
+                                for name, label in metric_options
+                                if name == y_metric
+                            ),
+                            hovermode="closest",
+                        )
+                        style_figure(correlation_figure)
+                        st.plotly_chart(
+                            correlation_figure,
+                            width="stretch",
+                            config={"displaylogo": False},
+                        )
+
+        with st.expander(
+            "Curve derivate",
+            expanded=False,
+            icon=":material/query_stats:",
+        ):
+            if derived_figure.data:
+                st.plotly_chart(
+                    derived_figure,
+                    width="stretch",
+                    config={"displaylogo": False},
+                )
+            else:
+                st.info("Dati insufficienti per calcolare le curve derivate.")
+
+        with st.expander(
+            "Temperatura e dinamica",
+            expanded=False,
+            icon=":material/thermostat:",
+        ):
             st.plotly_chart(
                 correlation_figure,
                 width="stretch",
                 config={"displaylogo": False},
             )
-        else:
-            st.info("Scegli due variabili diverse per visualizzare la correlazione.")
-
-    with dynamics_tab:
-        st.plotly_chart(
-            temperature_figure,
-            width="stretch",
-            config={"displaylogo": False},
-        )
-
-    with details_tab:
-        if session_metadata:
-            render_metadata(session_metadata)
-        else:
-            st.info("Nessun metadato disponibile per questa sessione.")
-
-    with data_tab:
-        st.caption("Dati elaborati con i parametri attualmente selezionati.")
-        st.dataframe(analysis.reset_index(), width="stretch", hide_index=True)

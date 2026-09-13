@@ -1,0 +1,9 @@
+{
+  "schema_version": "fermentlab.upload-cursor.v2",
+  "session_id": "demo-20260912-001",
+  "destination_id": "nas-primary",
+  "confirmed_event_id": "demo-20260912-001:sample:0:vessel-3",
+  "confirmed_line_number": 4,
+  "updated_at_utc_ms": 1789207260000,
+  "status": "pending"
+}
